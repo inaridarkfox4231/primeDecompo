@@ -25,6 +25,10 @@ let isLoop = true;
 
 let mySystem; // これをメインに使っていく
 
+// モード用
+const AUTO = 0;
+const MANUAL = 1;
+
 // ---------------------------------------------------------------------------------------- //
 // system constants.
 
@@ -88,25 +92,7 @@ function setup(){
   };
 
   mySystem.createPlayer(weaponData);
-
-  // 本題
-  // 2, 3, 5のところを素因数列にする。1の場合は直進して消えて終わり。
-  mySystem.addPatternSeed({
-    x:0.5, y:0.4, shotSpeed:4, shotDirection:90, collisionFlag:ENEMY, shape:"starLarge", color:"black", bgColor:"plblue",
-    action:{
-      main:[{short:"deco"}, {catch:"a"}, {shotAction:"rad1"}, {fire:""}, {wait:300}, {loop:INF, back:"a"}],
-      rad1:[{short:"preparation", diff:90}, {shotAction:"rad2"}, {radial:{count:2}}, {vanish:true}],
-      rad2:[{short:"preparation", diff:60}, {shotAction:"rad3"}, {radial:{count:3}}, {vanish:true}],
-      rad3:[{short:"preparation", diff:36}, {radial:{count:5}}, {vanish:true}]
-    },
-    short:{
-      preparation:[{short:"deco"}, {speed:["set", 0.1, 30]}, {shotDirection:["rel", "$diff"]}],
-      deco:[{deco:{shape:"circleSmall", color:"black"}}]
-    }
-  })
-
-  mySystem.setPattern(DEFAULT_PATTERN_INDEX);
-
+  mySystem.setPattern();
 }
 
 function draw(){
@@ -223,32 +209,41 @@ class System{
     this.patternIndex = 0;
     this._qTree = new LinearQuadTreeSpace(AREA_WIDTH, AREA_HEIGHT, 3);
     this._detector = new CollisionDetector();
-    this.seedArray = []; // Systemに持たせました。
-    this.seedCapacity = 0;
+    // プログラム用
+    this.currentNumber = 1; // 表示中のパターンの数
+    this.seed = this.createSeed(); // 表示中のパターンの種
+    this.mode = AUTO; // 現在のモード
 	}
-  addPatternSeed(seed){
-    // なんかデフォルトを設定するとかここでできそうな。たとえばnwayのとか。radialとか。
-    this.seedArray.push(seed);
-    this.seedCapacity++;
-  }
   createPlayer(weaponData, flag = PLAYER){
     this.player = new SelfUnit(weaponData, flag);
   }
-  getPatternIndex(){
-    return this.patternIndex;
+  createSeed(){
+    let n = this.currentNumber;
+    return {
+      x:0.5, y:0.4, shotSpeed:4, shotDirection:90, collisionFlag:ENEMY, shape:"starLarge", color:"black", bgColor:"plblue",
+      action:{
+        main:[{short:"deco"}, {catch:"a"}, {shotAction:"rad1"}, {fire:""}, {wait:300}, {loop:INF, back:"a"}],
+        rad1:[{short:"preparation", diff:90}, {shotAction:"rad2"}, {radial:{count:2}}, {vanish:true}],
+        rad2:[{short:"preparation", diff:60}, {shotAction:"rad3"}, {radial:{count:3}}, {vanish:true}],
+        rad3:[{short:"preparation", diff:36}, {radial:{count:5}}, {vanish:true}]
+      },
+      short:{
+        preparation:[{short:"deco"}, {speed:["set", 0.1, 30]}, {shotDirection:["rel", "$diff"]}],
+        deco:[{deco:{shape:"circleSmall", color:"black"}}]
+      }
+    }
   }
-  setPattern(newPatternIndex){
-    // パターンを作る部分をメソッド化
-    if(this.seedArray[newPatternIndex] === undefined){ return; } // 存在しない時。
-    let seed = this.seedArray[newPatternIndex];
+  setPattern(){
+    let seed = this.seed;
     // 背景色
     if(seed.hasOwnProperty("bgColor")){
       this.backgroundColor = this.drawColor[seed.bgColor];
     }else{
       this.backgroundColor = color(220, 220, 255); // 背景色のデフォルト
     }
-    this.patternIndex = newPatternIndex;
+    // 初期化
     this.initialize();
+    // 種をパース
     let ptn = parsePatternSeed(seed);
     console.log(ptn);
     createUnit(ptn);
