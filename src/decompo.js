@@ -47,6 +47,9 @@ const COS_PENTA = [1, 0.30901699437494745, -0.8090169943749473, -0.8090169943749
 const SIN_PENTA = [0, 0.9510565162951535, 0.5877852522924732, -0.587785252292473, -0.9510565162951536];
 const ROOT_THREE_HALF = 0.8660254037844386; // √3/2.
 
+// 素数
+const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97];
+
 // 以下の定数はnwayやradialにおいて入れ子を作る際に、catch-backでループを戻るときの識別子を作るための変数で、
 // 際限なく増えていく。理論上は無限まで。まあそんな増えないだろうと。
 // パターンを変えるときに全部0にリセットすべき？でしょうね。何で書いてないの（（
@@ -75,8 +78,7 @@ function setup(){
   createCanvas(AREA_WIDTH + 160, AREA_HEIGHT);
   angleMode(DEGREES);
   textSize(16);
-
-  //unitPool = new ObjectPool(() => { return new Unit(); }, 1024);
+  textAlign(CENTER, CENTER);
 
   let weaponData = [];
   let weaponCapacity = 0;
@@ -171,9 +173,6 @@ function createSystem(w, h, unitCapacity){
   window["BLUE"] = entity.drawColor["blue"];
   // オブジェクトプール
   window["unitPool"] = new ObjectPool(() => { return new Unit(); }, unitCapacity);
-  // デフォルトクラス
-  //window["IDLE_COMMAND"] = new IdleCommand();
-  //window["THROUGH_COMMAND"] = new ThroughCommand();
   return _system;
 }
 
@@ -211,25 +210,41 @@ class System{
     this._detector = new CollisionDetector();
     // プログラム用
     this.currentNumber = 1; // 表示中のパターンの数
+    this.currentPrimeArray = []; // 素因数列、背景にも使う（計算式表示）
     this.seed = this.createSeed(); // 表示中のパターンの種
     this.mode = AUTO; // 現在のモード
+    this.patternLife = 60; // そのパターンの表示時間。下限は60で基本的に素因数の数x30にする。MANUALのときはINF.
 	}
   createPlayer(weaponData, flag = PLAYER){
     this.player = new SelfUnit(weaponData, flag);
   }
   createSeed(){
     let n = this.currentNumber;
+    let seed = {};
+    // グローバルは同じでいいと思う
+    // ユニットに数を持たせないといけないからプロパティ増やす、メソッドも作る。shotNumber的な感じの。
+    // nを割っていってできた数を付与、と同時にその数でradialする。
+    // 最後の素因数のときだけshotActionブロックを付けない。あとは一緒。
+    // やめた。最後だけ加速させよう。その方がすっきりする。
+    //　数はdecoで付与することにしました。
+    // colorはいくつか用意しといてhueでえり分けるか。元のnを保持しといて比の値で・・とか。
     return {
       x:0.5, y:0.4, shotSpeed:4, shotDirection:90, collisionFlag:ENEMY, shape:"starLarge", color:"black", bgColor:"plblue",
       action:{
-        main:[{short:"deco"}, {catch:"a"}, {shotAction:"rad1"}, {fire:""}, {wait:300}, {loop:INF, back:"a"}],
-        rad1:[{short:"preparation", diff:90}, {shotAction:"rad2"}, {radial:{count:2}}, {vanish:true}],
-        rad2:[{short:"preparation", diff:60}, {shotAction:"rad3"}, {radial:{count:3}}, {vanish:true}],
-        rad3:[{short:"preparation", diff:36}, {radial:{count:5}}, {vanish:true}]
+        main:[{short:"deco", shape:"circleLarge", num:960}, {catch:"a"}, {shotAction:"rad8"}, {fire:""}, {wait:600}, {loop:INF, back:"a"}],
+        rad8:[{short:"deco", shape:"circleLarge", num:480}, {short:"preparation"}, {shotAction:"rad0"}, {radial:{count:2}}, {vanish:true}],
+        rad0:[{short:"deco", shape:"circleLarge", num:240}, {short:"preparation"}, {shotAction:"rad1"}, {radial:{count:2}}, {vanish:true}],
+        rad1:[{short:"deco", shape:"circleLarge", num:120}, {short:"preparation"}, {shotAction:"rad2"}, {radial:{count:2}}, {vanish:true}],
+        rad2:[{short:"deco", shape:"circleMiddle", num:40}, {short:"preparation"}, {shotAction:"rad3"}, {radial:{count:3}}, {vanish:true}],
+        rad3:[{short:"deco", shape:"circleMiddle", num:20}, {short:"preparation"}, {shotAction:"rad4"}, {radial:{count:2}}, {vanish:true}],
+        rad4:[{short:"deco", shape:"circleMiddle", num:10}, {short:"preparation"}, {shotAction:"rad5"}, {radial:{count:2}}, {vanish:true}],
+        rad5:[{short:"deco", shape:"circleSmall", num:5}, {short:"preparation"}, {shotAction:"rad6"}, {radial:{count:2}}, {vanish:true}],
+        rad6:[{short:"deco", shape:"circleSmall", num:1}, {short:"preparation"}, {shotAction:"rad7"}, {radial:{count:5}}, {vanish:true}],
+        rad7:[]
       },
       short:{
-        preparation:[{short:"deco"}, {speed:["set", 0.1, 30]}, {shotDirection:["rel", "$diff"]}],
-        deco:[{deco:{shape:"circleSmall", color:"black"}}]
+        preparation:[{speed:["set", 0.1, 30]}, {shotDirection:["rel", 90]}],
+        deco:[{deco:{shape:"$shape", color:"black", num:"$num"}}]
       }
     }
   }
@@ -412,6 +427,10 @@ class System{
       if(name !== "laser"){ fill(this.drawColor[name]); }
       this.drawGroup[name].loop("draw"); // 色別に描画(laserは別立て)
     })
+    // 数字の描画（サイズとかは事前に決めてあるので普通に数描くだけでOKです）
+    fill(255);
+    this.unitArray.loop("drawNumber");
+
     // particleの描画(noStroke()を忘れないこと)
     noFill();
     strokeWeight(2.0);
@@ -481,10 +500,10 @@ class System{
         .registShape("doubleWedgeMiddle", new DrawDoubleWedgeShape(20))
         .registShape("doubleWedgeLarge", new DrawDoubleWedgeShape(30))
         .registShape("doubleWedgeHuge", new DrawDoubleWedgeShape(60))
-        .registShape("circleSmall", new DrawCircleShape(25))
-        .registShape("circleMiddle", new DrawCircleShape(35))
-        .registShape("circleLarge", new DrawCircleShape(45))
-        .registShape("circleHuge", new DrawCircleShape(80))
+        .registShape("circleSmall", new DrawCircleShape(24))
+        .registShape("circleMiddle", new DrawCircleShape(33))
+        .registShape("circleLarge", new DrawCircleShape(42))
+        .registShape("circleHuge", new DrawCircleShape(78))
         .registShape("laserSmall", new DrawLaserShape(8))
         .registShape("laserMiddle", new DrawLaserShape(16))
         .registShape("laserLarge", new DrawLaserShape(24))
@@ -724,6 +743,9 @@ class Unit{
     this.shotShape = WEDGE_SMALL;
     this.shotColor = BLUE;
     this.drawParam = {}; // 描画用付加データは毎回初期化する
+    // 数関連（オリジナル）
+    this.num = undefined; // 保持している数情報
+    this.shotNum = undefined; // 撃ち出すユニットに込める数情報
     // その他の挙動を制御する固有のプロパティ
     this.properFrameCount = 0;
     this.vanish = false; // trueなら、消す。
@@ -766,6 +788,7 @@ class Unit{
     if(ptn.color !== undefined){ this.color = ptn.color; }
     if(ptn.shape !== undefined){ this.shape = ptn.shape; }
     if(ptn.move !== undefined){ this.move = ptn.move; }
+    if(ptn.num !== undefined){ this.num = ptn.num; } // オリジナル。円でなければ数を付与しないからマッチは使わない。
     if(ptn.collisionFlag !== undefined){ this.collisionFlag = ptn.collisionFlag; } // ENEMY_BULLETでない場合は別途指示
     this.action = ptn.action; // action配列
 
@@ -899,6 +922,11 @@ class Unit{
       const l = this.life * this.shape.size * 2 / this.maxLife;
       rect(this.position.x - l / 2, this.position.y + this.shape.size * 1.5, l, 5);
     }
+  }
+  drawNumber(){
+    // 数描画用。オリジナル。
+    if(this.hide || this.vanish || this.num === undefined){ return; }
+    text(this.num, this.position.x, this.position.y);
   }
 }
 
@@ -1221,8 +1249,8 @@ class DrawCircleShape extends DrawShape{
   constructor(size){
     super();
     this.colliderType = "circle";
-    this.size = size; // 25, 35, 45, 80. 中に数字を書き込む関係で。textSize:20を想定。
-    this.damage = size * 0.2;
+    this.size = size; // 24, 33, 42, 78. 中に数字を書き込む関係で。textSize:16を想定。
+    this.damage = size * 0.3;
   }
   set(unit){
     unit.collider.update(unit.position.x, unit.position.y, this.size);
@@ -1772,6 +1800,26 @@ function directionDist(d1, d2){
   return min(abs(d1 - d2), 360 - abs(d1 - d2));
 }
 
+// 与えられた2以上の整数を素因数分解して配列を返す。
+function getDecompo(n){
+  if(n < 2 || n > 999 || typeof(n) !== "number"){ return []; }
+  if(Math.floor(n) !== n){ return []; }
+  let result = [];
+  let m, divider;
+  let debug = 10000;
+  while(n > 1 && debug > 0){
+    debug--;
+    m = Math.sqrt(n);
+    for(let p of primes){
+      if(p > m){ divider = n; break; }
+      if(n % p === 0){ divider = p; break; }
+    }
+    result.push(divider);
+    n = n / divider;
+  }
+  return shuffle(result);
+}
+
 // ---------------------------------------------------------------------------------------- //
 // Move. behaviorは廃止。
 
@@ -1846,6 +1894,8 @@ function executeFire(unit){
   // 色、形関連
   ptn.color = unit.shotColor;
   ptn.shape = unit.shotShape;
+  // 数関連（オリジナル）
+  ptn.num = unit.shotNum;
   // collisionFlag.
   ptn.collisionFlag = unit.shotCollisionFlag;
   // <<---重要--->> parentの設定。createUnitのときに設定される。
@@ -2201,7 +2251,8 @@ function interpretCommand(data, command, index){
   }
   if(_type === "deco"){
     // shotプロパティをいじる。{deco:{speed:8, direction:90, color:"grey", shape:"wedgeMiddle"}}とかする。
-    const propNames = ["speed", "direction", "color", "shape"];
+    // プログラムのために"num"を追加
+    const propNames = ["speed", "direction", "color", "shape", "num"];
     propNames.forEach((name) => {
       if(command.deco.hasOwnProperty(name)){
         result[name] = command.deco[name];
@@ -2354,17 +2405,6 @@ function execute(unit, command){
   }
   // shotにactionをセットする場合
   // clearを廃止したい
-  /*
-  if(_type === "shotAction"){
-    if(command.mode === "set"){
-      unit.shotAction = command.shotAction;
-    }else if(command.mode === "clear"){
-      unit.shotAction = [];
-    }
-    unit.actionIndex++;
-    return true;
-  }
-  */
   if(_type === "shotAction"){
     unit.shotAction = command.shotAction;
     unit.actionIndex++;
@@ -2416,11 +2456,12 @@ function execute(unit, command){
     return true; // ループは抜けない
   }
   if(_type === "deco"){
-    // ショットいろいろ
+    // ショットいろいろ（shotNumを設定できるように改良してる）
     if(command.hasOwnProperty("speed")){ unit.shotSpeed = command.speed; }
     if(command.hasOwnProperty("direction")){ unit.shotDirection = command.direction; }
     if(command.hasOwnProperty("color")){ unit.shotColor = entity.drawColor[command.color]; }
     if(command.hasOwnProperty("shape")){ unit.shotShape = entity.drawShape[command.shape]; }
+    if(command.hasOwnProperty("num")){ unit.shotNum = command.num; } // ←ここです
     unit.actionIndex++;
     return true;
   }
