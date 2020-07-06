@@ -212,12 +212,12 @@ class System{
     this._qTree = new LinearQuadTreeSpace(AREA_WIDTH, AREA_HEIGHT, 3);
     this._detector = new CollisionDetector();
     // プログラム用
-    this.currentNumber = 432; // 表示中のパターンの数
+    this.mode = AUTO; // 現在のモード
+    this.currentNumber = 5; // 表示中のパターンの数
     this.currentPrimeArray = getDecompo(this.currentNumber); // 素因数列、背景にも使う（計算式表示）
     this.primeArrayText = getPrimeArrayText(this.currentPrimeArray); // 数分解の様子を表示するテキスト。
     this.seed = this.createSeed(); // 表示中のパターンの種
-    this.mode = AUTO; // 現在のモード
-    this.patternLife = 60; // そのパターンの表示時間。下限は60で基本的に素因数の数x30にする。MANUALのときはINF.
+    this.patternLife = Math.max(120, 60 * this.currentPrimeArray.length); // そのパターンの表示時間.
     // 背景作る
     this.prepareBackground();
 	}
@@ -230,7 +230,7 @@ class System{
     // seedの中身を作っていく
     seed.short = {preparation:[{speed:["set", 0.1, "$span"]}, {shotDirection:["rel", 90]}]};
     let actionData = {};
-    const waitSpan = Math.max(60, 30 * this.currentPrimeArray.length);
+    const waitSpan = Math.max(120, 60 * this.currentPrimeArray.length);
     actionData.main = [{deco:{shape:"rectSmall", color:"dkred"}}, {catch:"a"}, {shotAction:"rad0"}, {fire:""}, {wait:waitSpan}, {loop:INF, back:"a"}];
     let actionName = "";
     let divider, colorName;
@@ -241,8 +241,8 @@ class System{
       divider = this.currentPrimeArray[i];
       n = n / divider;
       colorName = kindOfColor[Math.min(8, i)];
-      actionData["rad" + i.toString()] = [{deco:{shape:"rectSmall", color:colorName}}, {short:"preparation", span:span}, {shotAction:actionName},
-                                          {radial:{count:divider}}, {vanish:true}];
+      actionData["rad" + i.toString()] = [{deco:{shape:"rectSmall", color:colorName}}, {short:"preparation", span:span},
+                                          {shotAction:actionName}, {radial:{count:divider}}, {vanish:true}];
       span -= 2;
     }
     actionData["rad" + this.currentPrimeArray.length] = [];
@@ -293,10 +293,21 @@ class System{
     this.drawShape[name] = _shape;
     return this; // メソッドチェーン
   }
+  patternUpdate(){
+    this.currentNumber++;
+    // 数を減らしていく。0になったら次。
+    this.currentPrimeArray = getDecompo(this.currentNumber); // 素因数列、背景にも使う（計算式表示）
+    this.primeArrayText = getPrimeArrayText(this.currentPrimeArray); // 数分解の様子を表示するテキスト。
+    this.seed = this.createSeed(); // 表示中のパターンの種
+    this.patternLife = Math.max(120, 60 * this.currentPrimeArray.length); // そのパターンの表示時間。下限は120. MANUAL時はINF.
+    this.setPattern();
+  }
 	update(){
 		this.player.update();
     this.unitArray.loop("update");
     this.particleArray.loopReverse("update");
+    this.patternLife--;
+    if(this.patternLife === 0){ this.patternUpdate(); }
 	}
   collisionCheck(){
     //return;
@@ -1805,6 +1816,7 @@ function getDecompo(n){
 
 // data=[2, 2, 3]だとして12=2x2x3みたいなテキストを作るやつね。reduceで積を取る感じ。
 function getPrimeArrayText(data){
+  if(data.length === 1){ return data[0].toString() + " is prime number."; }
   const product = data.reduce((a, b) => { return a * b });
   let result = product.toString() + "=";
   result += data[0].toString();
