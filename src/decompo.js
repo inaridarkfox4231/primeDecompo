@@ -91,22 +91,13 @@ function setup(){
   createCanvas(AREA_WIDTH + 160, AREA_HEIGHT);
   angleMode(DEGREES);
   textAlign(CENTER, CENTER);
+  noStroke();
 
   let weaponData = [];
   let weaponCapacity = 0;
 
-  // プレイヤーの攻撃パターン作成
-  // デフォルト。黒い弾丸をいっぱい。
-  // 今回これ要らんけどね。
-  weaponData[weaponCapacity++] = {
-    action:{
-      main:[{shotAction:"go"}, {catch:"a"}, {nway:{count:4, interval:25}},
-            {wait:4}, {loop:INF, back:"a"}],
-      go:[{wait:5}, {direction:["set", -90]}]
-    }
-  };
+  // プレイヤーはいません
 
-  mySystem.createPlayer(weaponData);
   mySystem.setPattern();
 }
 
@@ -115,7 +106,7 @@ function draw(){
 
   mySystem.update(); // 更新
 
-  mySystem.collisionCheck(); // 衝突判定
+  //mySystem.collisionCheck(); // 衝突判定
 
   mySystem.execute(); // 行動
 
@@ -238,7 +229,7 @@ function createSystem(w, h, unitCapacity){
 class System{
 	constructor(){
     this.unitArray = new CrossReferenceArray();
-    this.particleArray = new SimpleCrossReferenceArray();
+    //this.particleArray = new SimpleCrossReferenceArray();
     this.backgroundColor = color(220, 220, 255); // デフォルト（薄い青）
     //this.infoColor = color(0); // デフォルト（情報表示の色、黒）
     this.drawColor = {}; // 色の辞書
@@ -251,8 +242,6 @@ class System{
     // で、そこにも登録し、vanishのときにそこからはじく、パターンチェンジの際にもこれらの内容を破棄する。
     // 破棄するときはunitをPoolに戻すのはやってるから単にclearでいい。unitArrayをclearしちゃうとPoolに戻らないので駄目。
     this.patternIndex = 0;
-    this._qTree = new LinearQuadTreeSpace(AREA_WIDTH, AREA_HEIGHT, 3);
-    this._detector = new CollisionDetector();
     // プログラム用
     this.mode = AUTO; // 現在のモード
     this.currentNumber = INITIAL_NUMBER; // 表示中のパターンの数
@@ -263,9 +252,6 @@ class System{
     // 背景作る
     this.prepareBackground();
 	}
-  createPlayer(weaponData, flag = PLAYER){
-    this.player = new SelfUnit(weaponData, flag);
-  }
   createSeed(){
     let n = this.currentNumber;
     let seed = {x:0.5, y:0.4, shotSpeed:4, shotDirection:90, collisionFlag:ENEMY, shape:"starLarge", color:"black", bgColor:"plgrey"};
@@ -311,7 +297,7 @@ class System{
     // colorから名前を引き出す。
     //const name = unit.color.name;
     let name = unit.color.name;
-    if(unit.collider.type === "laser"){ name = "laser"; } // laserは別立て描画
+    //if(unit.collider.type === "laser"){ name = "laser"; } // laserは別立て描画
 
     if(!this.drawGroup.hasOwnProperty(name)){
       this.drawGroup[name] = new CrossReferenceArray();
@@ -319,7 +305,7 @@ class System{
     this.drawGroup[name].add(unit);
   }
 	initialize(){
-		this.player.initialize();
+		//this.player.initialize();
     this.unitArray.loopReverse("flagOff"); // 先に衝突フラグを消す
     this.unitArray.loopReverse("vanishAction");  // unitすべて戻す
     this.drawGroup = {};
@@ -370,136 +356,16 @@ class System{
     this.setPattern();
   }
 	update(){
-		this.player.update();
     this.unitArray.loop("update");
-    this.particleArray.loopReverse("update");
     if(this.mode === MANUAL && mouseIsPressed){ this.numberControl(); } // MANUALモード限定
     this.patternStateUpdate();
     if(this.patternState.next){ this.patternUpdate(); }
 	}
-  collisionCheck(){
-    //return;
-    // やることは簡単。_qTreeをクリアして、actor放り込んで、hitTestするだけ。
-    this._qTree.clear();
-    this._qTree.addActor(this.player);
-    for(let i = 0; i < this.unitArray.length; i++){
-      const u = this.unitArray[i];
-      if(!u.collider.inFrame()){ continue; } // inFrame「でない」ならば考慮しない
-      if(u.vanish){ continue; } // vanish「である」ならば考慮しない
-      if(u.hide){ continue; } // hide状態なら考慮しない
-      this._qTree.addActor(u);
-    }
-    this._hitTest();
-  }
-  _hitTest(currentIndex = 0, objList = []){
-    // 衝突判定のメインコード。これと、このあとセルごとの下位関数、更にvalidationを追加して一応Systemは完成とする。
-  	const currentCell = this._qTree.data[currentIndex];
-
-    // 現在のセルの中と、衝突オブジェクトリストとで
-    // 当たり判定を取る。
-    this._hitTestInCell(currentCell, objList);
-
-    // 次に下位セルを持つか調べる。
-    // 下位セルは最大4個なので、i=0から3の決め打ちで良い。
-    let hasChildren = false;
-    for(let i = 0; i < 4; i++) {
-      const nextIndex = currentIndex * 4 + 1 + i;
-
-      // 下位セルがあったら、
-      const hasChildCell = (nextIndex < this._qTree.data.length) && (this._qTree.data[nextIndex] !== null);
-      hasChildren = hasChildren || hasChildCell;
-      if(hasChildCell) {
-        // 衝突オブジェクトリストにpushして、
-        objList.push(...currentCell);
-        // 下位セルで当たり判定を取る。再帰。
-        this._hitTest(nextIndex, objList);
-      }
-    }
-    // 終わったら追加したオブジェクトをpopする。
-    if(hasChildren) {
-      const popNum = currentCell.length;
-      for(let i = 0; i < popNum; i++) {
-        objList.pop();
-      }
-    }
-  }
-  _hitTestInCell(cell, objList) {
-    // セルの中。総当たり。
-    const length = cell.length;
-    const cellColliderCahce = new Array(length); // globalColliderのためのキャッシュ。
-    if(length > 0){ cellColliderCahce[0] = cell[0].collider; }
-
-    for(let i = 0; i < length - 1; i++){
-      const obj1 = cell[i];
-      const collider1  = cellColliderCahce[i]; // キャッシュから取ってくる。
-      for(let j = i + 1; j < length; j++){
-        const obj2 = cell[j];
-
-        // キャッシュから取ってくる。
-        // ループ初回は直接取得してキャッシュに入れる。
-        let collider2;
-        if(i === 0) {
-          collider2 = obj2.collider;
-          cellColliderCahce[j] = collider2;
-        }else{
-          collider2 = cellColliderCahce[j];
-        }
-        // Cahceへの代入までスルーしちゃうとまずいみたい
-        // ここでobj1, obj2のcollisionFlagでバリデーションかけてfalseならcontinue.
-        if(!this.validation(obj1.collisionFlag, obj2.collisionFlag)){ continue; }
-        const hit = this._detector.detectCollision(collider1, collider2);
-
-        if(hit) {
-          // 両方ともvanishがfalseならば判定する。
-          if(!obj1.vanish && !obj2.vanish){
-            obj1.hit(obj2);
-            obj2.hit(obj1);
-          }
-        }
-      }
-    }
-
-    // 衝突オブジェクトリストと。
-    const objLength = objList.length;
-    const cellLength = cell.length;
-
-    // これはもう最初に一通りobjListとcellをさらってplayerもenemyもいなければそのままスルー・・
-    for(let i = 0; i < objLength; i++) {
-      const obj = objList[i];
-      const collider1 = obj.collider; // 直接取得する。
-      for(let j = 0; j < cellLength; j++) {
-        const cellObj = cell[j];
-
-        // objとcellobjの性質からバリデーションかけてfalseならcontinue.
-        if(!this.validation(obj.collisionFlag, cellObj.collisionFlag)){ continue; }
-
-        const collider2 = cellColliderCahce[j]; // キャッシュから取ってくる。
-        const hit = this._detector.detectCollision(collider1, collider2);
-
-        if(hit) {
-          if(!obj.vanish && !cellObj.vanish){
-            obj.hit(cellObj);
-            cellObj.hit(obj);
-          }
-        }
-      }
-    }
-  }
-  validation(flag1, flag2){
-		// ENEMYとPLAYER_BULLET, ENEMY_BULLETとPLAYERのときのみtrueを返す。
-		if(flag1 === ENEMY_BULLET && flag2 === PLAYER){ return true; }
-		if(flag1 === PLAYER && flag2 === ENEMY_BULLET){ return true; }
-		if(flag1 === ENEMY && flag2 === PLAYER_BULLET){ return true; }
-		if(flag1 === PLAYER_BULLET && flag2 === ENEMY){ return true; }
-		return false;
-	}
   execute(){
-    this.player.execute();
     this.unitArray.loop("execute");
   }
   eject(){
     this.unitArray.loopReverse("eject");
-    this.particleArray.loopReverse("eject");
   }
   prepareBackground(){
     this.bg = createGraphics(AREA_WIDTH, AREA_HEIGHT);
@@ -516,18 +382,11 @@ class System{
     text(this.primeArrayText, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.8);
   }
 	draw(){
-		this.player.draw();
     Object.keys(this.drawGroup).forEach((name) => {
-      if(name !== "laser"){ fill(this.drawColor[name]); }
+      fill(this.drawColor[name]);
       this.drawGroup[name].loop("draw"); // 色別に描画(laserは別立て)
     })
     // 数字書くのやめ。
-
-    // particleの描画(noStroke()を忘れないこと)
-    noFill();
-    strokeWeight(2.0);
-    this.particleArray.loop("draw");
-    noStroke();
 	}
   getCapacity(){
     return this.unitArray.length;
@@ -604,10 +463,6 @@ class System{
         .registShape("doubleWedgeMiddle", new DrawDoubleWedgeShape(20))
         .registShape("doubleWedgeLarge", new DrawDoubleWedgeShape(30))
         .registShape("doubleWedgeHuge", new DrawDoubleWedgeShape(60))
-        .registShape("laserSmall", new DrawLaserShape(8))
-        .registShape("laserMiddle", new DrawLaserShape(16))
-        .registShape("laserLarge", new DrawLaserShape(24))
-        .registShape("laserHuge", new DrawLaserShape(48))
         .registShape("cherryLarge", new DrawCherryShape(30));
   }
 }
@@ -628,12 +483,6 @@ function createUnit(pattern){
 // ダメージ時：sizeFactor = 2.0, life = 30, speed = 4, count = 5.
 // targetは発生場所。レーザーの場合はくらった相手の場所に発生させる。
 // レーザーダメージ時：sizeFactor = 2.0, life = 15, speed = 4, count = 2.
-function createParticle(unit, target, sizeFactor, life, speed, count){
-  const size = unit.shape.size * sizeFactor;  // やられる時は0.7, ダメージ時は2.0で。
-  const _color = unit.color;
-  let newParticle = new Particle(target.position.x, target.position.y, size, _color, life, speed, count);
-  entity.particleArray.add(newParticle);
-}
 
 // ---------------------------------------------------------------------------------------- //
 // Player.
@@ -641,161 +490,7 @@ function createParticle(unit, target, sizeFactor, life, speed, count){
 // パッシブスキルを色付きの回転多角形で表現したいんだけどまだまだ先の話。
 // 回転する四角形の色：ショットの色、伸縮する青い楕円：常時HP回復、みたいな。オレンジの六角形でHP表示とか面白そう。
 
-class SelfUnit{
-	constructor(weaponData, myCollisionFlag){
-    this.isPlayer = true; // プレイヤーかどうか。fireコマンドの分岐に使う。
-		this.position = createVector(0, 0);
-    this.collisionFlag = myCollisionFlag; // 衝突フラグ（デフォルト：PLAYER）
-    this.shotCollisionFlag = PLAYER_BULLET; // ショットはPLAYER_BULLET.
-    this.collider = new CircleCollider();
-    this.counter = new LoopCounter(); // ループカウンタ用意しました。はい。
-    this.ptnArray = [];
-    this.ptnIndex = 0; // 現時点でのptnのインデックス(levelを導入する場合には更にlevelを追加して[index][level]...)
-    this.size = 20;
-    // life関連
-    this.maxLife = 50;
-    this.life = this.maxLife;
-    this.healCount = 0;     // ヒールカウントシステム。キー入力の際に+1され、maxに達するとHPが1増える
-    this.maxHealCount = 20; // maxの値
-    this.vanish = false;
-    this.prepareWeapon(weaponData);
-		this.initialize();
-	}
-  prepareWeapon(weaponData){
-    for(let i = 0; i < weaponData.length; i++){
-      const myPtn = parsePatternSeed(weaponData[i]);
-      console.log(myPtn);
-      this.ptnArray.push(myPtn);
-    }
-    // shiftKeyで変更。
-    // 具体的には各種decorate処理及びactionの差し替え。
-    // 追加プロパティ：action, actionIndex, counter, ptnArray, ptnIndex. 廃止プロパティ：weapon, fire, wait.
-  }
-	initialize(){
-    // action関連はsetPattern内で行う。
-    this.ptnIndex = 0;
-    this.setPattern(this.ptnArray[0]); // ここは実行中にもあれこれやるってことで・・
-    // プレイヤーの位置はここで。パターンチェンジで位置はいじらないので。
-		this.position.set(AREA_WIDTH * 0.5, AREA_HEIGHT * 0.875);
-    // collider関連
-    this.collider.update(this.position.x, this.position.y, 5);
-    this.rotationAngle = 0;
-		this.rotationSpeed = -2;
-    // life関連（クラスにした方がいいのかなぁ）
-    this.maxLife = 50;
-    this.life = this.maxLife;
-    this.healCount = 0; // ヒールカウント
-    this.maxHealCount = 20; // 20回移動するたびにHPが1回復する
-    this.vanish = false;
-	}
-	setPosition(x, y){
-		this.position.set(x, y);
-	}
-  setPattern(ptn){
-    // カウンターの初期化はここでやるべき（initializeとは別にパターンチェンジするので）
-    this.counter.initialize();
-    // パターンの内容を元にごにょごにょ
-    // 位置はいじらないよ！
-    const {speed, shotSpeed, shotDirection, shotMove, shotColor, color, shotShape, shotDelay} = ptn;
-    this.speed = (speed !== undefined ? ptn.speed : 4);
-    this.shotSpeed = (shotSpeed !== undefined ? ptn.shotSpeed : 8);
-    this.shotDirection = (shotDirection !== undefined ? ptn.shotDirection : -90);
-    // shotMoveにする。behaviorは廃止。
-    this.shotMove = (shotMove !== undefined ? ptn.shotMove : GO_MOVE);
-    this.shotAction = []; // action内で設定する。
-    this.shotColor = (shotColor !== undefined ? ptn.shotColor : entity.drawColor["black"]);
-    this.color = (color !== undefined ? ptn.color : entity.drawColor["black"]);
-    this.shotShape = (shotShape !== undefined ? ptn.shotShape : entity.drawShape["wedgeSmall"]);
-    this.shotDelay = (shotDelay !== undefined ? ptn.shotDelay : 0);
-    this.shotDistance = 0; // これがないと発射できないよ
-    // actionをセット。
-    this.action = ptn.action;
-    this.actionIndex = 0;
-  }
-  shiftPattern(){
-    // 1つ進める感じで。とりあえず。level用意するならそこら辺も考慮すべきなんだろうけど・・・
-    this.ptnIndex++;
-    if(this.ptnIndex === this.ptnArray.length){ this.ptnIndex = 0; }
-    this.setPattern(this.ptnArray[this.ptnIndex]);
-  }
-	update(){
-    if(this.vanish){ return; }
-		this.rotationAngle += this.rotationSpeed;
-    const {x, y} = this.position;
-	  if(keyIsDown(LEFT_ARROW)){ this.position.x -= this.speed; }
-		else if(keyIsDown(RIGHT_ARROW)){ this.position.x += this.speed; }
-		else if(keyIsDown(UP_ARROW)){ this.position.y -= this.speed; }
-		else if(keyIsDown(DOWN_ARROW)){ this.position.y += this.speed; }
-    this.inFrame();
-    const {x:newX, y:newY} = this.position;
-    // 位置が更新した時だけhealCountを増やす(移動による回復(ポケダン的な))
-    if(x !== newX || y !== newY){
-      this.healCount++;
-      if(this.healCount === this.maxHealCount){
-        this.lifeUpdate(1);
-        this.healCount = 0;
-      }
-    }
-    this.collider.update(this.position.x, this.position.y); // circle限定なので普通にupdate.
-	}
-  lifeUpdate(diff){
-    this.life += diff;
-    if(this.life > this.maxLife){ this.life = this.maxLife; }
-    if(this.life > 0){ return; }
-    // パーティクル出して。
-    const newParticle = new Particle(this.position.x, this.position.y, 20, this.color);
-    entity.particleArray.add(newParticle);
-    this.life = 0;
-    this.vanish = true;
-  }
-  hit(unit){
-    //console.log("player hit!");
-    // unitからダメージ量を計算してhitPointをupdateして0以下になるようなら消滅する（vanish必要）。
-    // unitと違って単にエフェクト出して描画されなくなるだけにする。
-    this.lifeUpdate(-unit.damage);
-  }
-  execute(){
-    if(this.vanish){ return; }
-    // アクションの実行（処理が終了しているときは何もしない）（vanish待ちのときも何もしない）
-    if(this.action.length > 0 && this.actionIndex < this.action.length){
-      let debug = 0; // デバッグモード
-      let continueFlag = true;
-      while(continueFlag){
-        const command = this.action[this.actionIndex];
-        continueFlag = execute(this, command); // flagがfalseを返すときに抜ける
-        debug++; // デバッグモード
-        if(debug > 10000){
-          console.log("INFINITE LOOP ERROR!!");
-          console.log(command, this.actionIndex);
-          noLoop(); break; } // デバッグモード
-        // actionの終わりに来たら勝手に抜ける。その後は永久にwaitになる（予定）
-        if(this.actionIndex === this.action.length){ break; }
-      }
-    }
-  }
-	inFrame(){
-    // 当たり判定を考慮して5のマージンを設ける。
-		this.position.x = constrain(this.position.x, 5, AREA_WIDTH - 5);
-		this.position.y = constrain(this.position.y, 5, AREA_HEIGHT - 5);
-	}
-	draw(){
-    if(this.vanish){ return; }
-		const {x, y} = this.position;
-		const c = cos(this.rotationAngle) * this.size;
-		const s = sin(this.rotationAngle) * this.size;
-		//stroke(this.bodyColor);
-    stroke(this.color);
-		noFill();
-		strokeWeight(2);
-		quad(x + c, y + s, x - s, y + c, x - c, y - s, x + s, y - c);
-    noStroke();
-    fill(this.color);
-    ellipse(x, y, 10, 10); // 直径10. 半径は5. ここが当たり判定。
-    // ライフゲージ。
-    const l = this.life * this.size * 2 / this.maxLife;
-    rect(this.position.x - l / 2, this.position.y + this.size * 1.5, l, 5);
-	}
-}
+// 今回プレイヤーはいません
 
 // ---------------------------------------------------------------------------------------- //
 // Unit.
@@ -808,7 +503,7 @@ class Unit{
     this.previousPosition = createVector(); // 前フレームでの位置
     this.velocity = createVector();
     this.counter = new LoopCounter(); // クラス化. loopの制御はこれ以降このコンポジットに一任する。
-    this.collider = new CircleCollider(); // 最初に1回だけ作って使いまわす。種類が変わるときだけいじる。基本update.
+    //this.collider = new CircleCollider(); // 最初に1回だけ作って使いまわす。種類が変わるときだけいじる。基本update.
     this.initialize();
   }
   initialize(){
@@ -850,8 +545,8 @@ class Unit{
     // 衝突判定関連
     this.collisionFlag = ENEMY_BULLET; // default. ENEMY, PLAYER_BULLETの場合もある。 // 10.
     // colliderがcircleでなくなってる場合は新たにCircleColliderを生成して当てはめる。
-    if(this.collider.type !== "circle"){ this.collider = new CircleCollider(); }
-    else{ /* Check(必要なら) */ this.collider.update(0, 0, 0); }
+    //if(this.collider.type !== "circle"){ this.collider = new CircleCollider(); }
+    //else{ /* Check(必要なら) */ this.collider.update(0, 0, 0); }
     // bindプロパティがtrueの場合、parentがvanishしたらactionをしないでvanishして切り上げる
     this.bind = false;
   }
@@ -918,11 +613,7 @@ class Unit{
       this.belongingArrayList[i].remove(this);
     }
     if(this.belongingArrayList.length > 0){ console.log("REMOVE ERROR!"); noLoop(); } // 排除ミス
-    // ENEMYが消えたときにパーティクルを出力する。hide状態なら出力しない。
-    if(this.collisionFlag === ENEMY && this.hide === false){
-      createParticle(this, this, 0.7, 60, 4, 20);
-    }
-
+    // パーティクルも出さないの。ごめんね・・
     unitPool.recycle(this); // 名称をunitPoolに変更
   }
   flagOff(){
@@ -939,15 +630,6 @@ class Unit{
     // moveとframeOutCheck.
     this.move.execute(this);
     this.frameOutCheck();
-    // ColliderのUpdate(typeによって分けるけどとりあえずcircleだからね・・)
-    if(this.collider.type == "circle"){
-      // サークル
-      this.collider.update(this.position.x, this.position.y);
-    }else if(this.collider.type === "laser"){
-      // レーザー
-      this.collider.update(this.position.x, this.position.y,
-                           this.parent.position.x, this.parent.position.y);
-    }
   }
   frameOutCheck(){
     const {x, y} = this.position;
@@ -962,23 +644,6 @@ class Unit{
     if(this.life > 0){ return; }
     this.life = 0;
     this.vanish = true;
-  }
-  hit(unit){
-    const flag = this.collisionFlag;
-    if(flag === ENEMY_BULLET || flag === PLAYER_BULLET){
-      if(this.collider.type === "circle"){
-        // サークル
-        createParticle(this, this, 2.0, 30, 4, 5);
-      }else{
-        // レーザーはスリップなので小さくする
-        createParticle(this, unit, 2.0, 15, 4, 2);
-      }
-      if(this.collider.type === "circle"){ this.vanish = true; } // サークルなら衝突で消える
-      return;
-    }else if(flag === ENEMY || flag === PLAYER){
-      this.lifeUpdate(-unit.damage);
-      return;
-    }
   }
   execute(){
     // vanishのときはスルー
@@ -1011,13 +676,8 @@ class Unit{
   }
   draw(){
     if(this.hide || this.vanish){ return; } // hide === trueのとき描画しない
-    //this.drawModule.draw(this);
     this.shape.draw(this);
-    if(this.collisionFlag === ENEMY){
-      // ライフゲージ（割合表示）
-      const l = this.life * this.shape.size * 2 / this.maxLife;
-      rect(this.position.x - l / 2, this.position.y + this.shape.size * 1.5, l, 5);
-    }
+    // ライフゲージ無しで
   }
 }
 
@@ -1065,55 +725,7 @@ class LoopCounter extends Array{
 // ---------------------------------------------------------------------------------------- //
 // particle.
 
-class Particle{
-	constructor(x, y, size, _color, life = 60, speed = 4, count = 20){
-    this.color = {r:red(_color), g:green(_color), b:blue(_color)};
-		this.center = {x:x, y:y};
-		this.size = size;
-		this.particleSet = [];
-		this.life = life;
-		this.speed = speed;
-		this.count = count + random(-5, 5);
-		this.rotationAngle = 0;
-		this.rotationSpeed = 4;
-		this.moveSet = [];
-		this.prepareMoveSet();
-		this.alive = true;
-	}
-	prepareMoveSet(){
-		for(let i = 0; i < this.count; i++){
-			this.moveSet.push({x:0, y:0, speed:this.speed + random(-2, 2), direction:random(360)});
-		}
-	}
-	update(){
-		if(!this.alive){ return; }
-		this.moveSet.forEach((z) => {
-			z.x += z.speed * cos(z.direction);
-			z.y += z.speed * sin(z.direction);
-			z.speed *= 0.9;
-		})
-		this.rotationAngle += this.rotationSpeed;
-		this.life--;
-		if(this.life === 0){ this.alive = false; }
-	}
-	draw(){
-		if(!this.alive){ return; }
-		stroke(this.color.r, this.color.g, this.color.b, this.life * 4);
-		const c = cos(this.rotationAngle) * this.size;
-		const s = sin(this.rotationAngle) * this.size;
-		this.moveSet.forEach((z) => {
-			const cx = this.center.x + z.x;
-			const cy = this.center.y + z.y;
-      quad(cx + c, cy + s, cx - s, cy + c, cx - c, cy - s, cx + s, cy - c);
-		})
-	}
-  eject(){
-    if(!this.alive){ this.vanishAction(); }
-  }
-  vanishAction(){
-    this.belongingArray.remove(this);
-  }
-}
+// は、出ません。
 
 // ---------------------------------------------------------------------------------------- //
 // drawFunction. bullet, cannon用の描画関数.
@@ -1125,7 +737,7 @@ class Particle{
 
 class DrawShape{
   constructor(){
-    this.colliderType = "";
+    //this.colliderType = "";
   }
   set(unit){ /* drawParamに描画用のプロパティを準備 */}
   draw(unit){ /* 形の描画関数 */ }
@@ -1138,7 +750,7 @@ class DrawShape{
 class DrawWedgeShape extends DrawShape{
   constructor(h, b){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.h = h; // 6
     this.b = b; // 3
     this.size = (h + b) / 2;
@@ -1146,8 +758,8 @@ class DrawWedgeShape extends DrawShape{
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size);
-    return;
+    //unit.collider.update(unit.position.x, unit.position.y, this.size);
+    //return;
   }
   draw(unit){
     const {x, y} = unit.position;
@@ -1165,13 +777,13 @@ class DrawWedgeShape extends DrawShape{
 class DrawDiaShape extends DrawShape{
   constructor(size){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.size = size;
     this.damage = 1; // 基礎ダメージ。サイズで変えたい・・
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size * 0.75);
+    //unit.collider.update(unit.position.x, unit.position.y, this.size * 0.75);
   }
   draw(unit){
     const {x, y} = unit.position;
@@ -1191,7 +803,7 @@ class DrawDiaShape extends DrawShape{
 class DrawRectShape extends DrawShape{
   constructor(h, w){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.h = h;
     this.w = w;
     this.size = (h + w) / 2;
@@ -1199,7 +811,7 @@ class DrawRectShape extends DrawShape{
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size);
+    //unit.collider.update(unit.position.x, unit.position.y, this.size);
   }
   draw(unit){
     // unit.directionの方向に長い長方形
@@ -1222,13 +834,13 @@ class DrawRectShape extends DrawShape{
 class DrawSquareShape extends DrawShape{
   constructor(size){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.size = size;
     this.life = size / 2; // 基礎ライフ。5, 10, 15, 30
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size);
+    //unit.collider.update(unit.position.x, unit.position.y, this.size);
     unit.drawParam = {rotationAngle:45, rotationSpeed:2};
   }
   draw(unit){
@@ -1247,14 +859,14 @@ class DrawSquareShape extends DrawShape{
 class DrawStarShape extends DrawShape{
   constructor(size){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.size = size;
     this.life = size * 5; // 基礎ライフ。15, 30, 45, 90.
     this.damage = size;   // 基礎ダメージ。3, 6, 9, 18.
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size * 1.2); // ちょっと大きく
+    //unit.collider.update(unit.position.x, unit.position.y, this.size * 1.2); // ちょっと大きく
     unit.drawParam = {rotationAngle:0, rotationSpeed:2};
   }
   draw(unit){
@@ -1284,13 +896,13 @@ class DrawStarShape extends DrawShape{
 class DrawDoubleWedgeShape extends DrawShape{
   constructor(size){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.size = size;
     this.life = size; // 基礎ライフ：10, 20, 30, 60.
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size); // 本来の大きさで。
+    //unit.collider.update(unit.position.x, unit.position.y, this.size); // 本来の大きさで。
     unit.drawParam = {rotationAngle:0, rotationSpeed:4};
   }
   draw(unit){
@@ -1312,13 +924,13 @@ class DrawDoubleWedgeShape extends DrawShape{
 class DrawCherryShape extends DrawShape{
   constructor(size){
     super();
-    this.colliderType = "circle";
+    //this.colliderType = "circle";
     this.size = size;
     this.life = size * 0.8;
   }
   set(unit){
     // colliderInitialize.
-    unit.collider.update(unit.position.x, unit.position.y, this.size); // 本来の大きさで。
+    //unit.collider.update(unit.position.x, unit.position.y, this.size); // 本来の大きさで。
     unit.drawParam = {rotationAngle:0, rotationSpeed:4};
   }
   draw(unit){
@@ -1337,44 +949,7 @@ class DrawCherryShape extends DrawShape{
 // 剣みたいなやつ。
 // 先端とunit.positionとの距離を指定してコンストラクトする。剣先からなんか出す場合の参考にする。
 
-// レーザーはparent使おうかな
-// size:8, 16, 24, 48.
-class DrawLaserShape extends DrawShape{
-  constructor(size){
-    super();
-    this.colliderType = "laser";
-    this.size = size;
-    this.damage = size * 0.1; // スリップダメージ
-  }
-  set(unit){
-    unit.collider = new LaserCollider();
-    unit.collider.update(unit.position.x, unit.position.y,
-                         unit.parent.position.x, unit.parent.position.y, this.size);
-  }
-  draw(unit){
-    // 四角形でいいよね。
-    // 見た目変えようかな。真ん中に行くほど白っぽい感じに。
-    const r = red(unit.color);
-    const g = green(unit.color);
-    const b = blue(unit.color);
-    const {x, y} = unit.position;
-    const {x:px, y:py} = unit.parent.position;
-    const direction = atan2(y - py, x - px);
-    let dx = cos(direction) * this.size;
-    let dy = sin(direction) * this.size;
-    fill(r, g, b);
-    quad(x - dy, y + dx, x + dy, y - dx, px + dy, py - dx, px - dy, py + dx);
-    fill(85 + r * 2 / 3, 85 + g * 2 / 3, 85 + b * 2 / 3);
-    dx *= 0.66; dy *= 0.66;
-    quad(x - dy, y + dx, x + dy, y - dx, px + dy, py - dx, px - dy, py + dx);
-    fill(170 + r / 3, 170 + g / 3, 170 + b / 3);
-    dx *= 0.5; dy *= 0.5;
-    quad(x - dy, y + dx, x + dy, y - dx, px + dy, py - dx, px - dy, py + dx);
-    fill(255);
-    dx *= 0.33; dy *= 0.33;
-    quad(x - dy, y + dx, x + dy, y - dx, px + dy, py - dx, px - dy, py + dx);
-  }
-}
+// レーザーは使いません
 
 // ダメージ計算
 function calcDamage(_shape, _color){
@@ -1386,311 +961,8 @@ function calcLife(_shape, _color){
 }
 // ---------------------------------------------------------------------------------------- //
 // ここからしばらく衝突判定関連
-// ---------------------------------------------------------------------------------------- //
-// quadTree関連。
-class LinearQuadTreeSpace {
-  constructor(_width, _height, level){
-    this._width = _width;
-    this._height = _height;
-    this.data = [null];
-    this._currentLevel = 0;
 
-    // 入力レベルまでdataを伸長する。
-    while(this._currentLevel < level){
-      this._expand();
-    }
-  }
-
-  // dataをクリアする。
-  clear() {
-    this.data.fill(null);
-  }
-
-  // 要素をdataに追加する。
-  // 必要なのは、要素と、レベルと、レベル内での番号。
-  _addNode(node, level, index){
-    // オフセットは(4^L - 1)/3で求まる。
-    // それにindexを足せば線形四分木上での位置が出る。
-    const offset = ((4 ** level) - 1) / 3;
-    const linearIndex = offset + index;
-
-    // もしdataの長さが足りないなら拡張する。
-    while(this.data.length <= linearIndex){
-      this._expandData();
-    }
-
-    // セルの初期値はnullとする。
-    // しかし上の階層がnullのままだと面倒が発生する。
-    // なので要素を追加する前に親やその先祖すべてを
-    // 空配列で初期化する。
-    let parentCellIndex = linearIndex;
-    while(this.data[parentCellIndex] === null){
-      this.data[parentCellIndex] = [];
-
-      parentCellIndex = Math.floor((parentCellIndex - 1) / 4);
-      if(parentCellIndex >= this.data.length){
-        break;
-      }
-    }
-
-    // セルに要素を追加する。
-    const cell = this.data[linearIndex];
-    cell.push(node);
-  }
-
-  // Actorを線形四分木に追加する。
-  // Actorのコリジョンからモートン番号を計算し、
-  // 適切なセルに割り当てる。
-  addActor(actor){
-    const collider = actor.collider;
-
-    // モートン番号の計算。
-    const leftTopMorton = this._calc2DMortonNumber(collider.left, collider.top);
-    const rightBottomMorton = this._calc2DMortonNumber(collider.right, collider.bottom);
-
-    // 左上も右下も-1（画面外）であるならば、
-    // レベル0として扱う。
-    // なおこの処理には気をつける必要があり、
-    // 画面外に大量のオブジェクトがあるとレベル0に
-    // オブジェクトが大量配置され、当たり判定に大幅な処理時間がかかる。
-    // 実用の際にはここをうまく書き換えて、あまり負担のかからない
-    // 処理に置き換えるといい。
-    if(leftTopMorton === -1 && rightBottomMorton === -1){
-      this._addNode(actor, 0, 0);
-      return;
-    }
-
-    // 左上と右下が同じ番号に所属していたら、
-    // それはひとつのセルに収まっているということなので、
-    // 特に計算もせずそのまま現在のレベルのセルに入れる。
-    if(leftTopMorton === rightBottomMorton){
-      this._addNode(actor, this._currentLevel, leftTopMorton);
-      return;
-    }
-
-    // 左上と右下が異なる番号（＝境界をまたいでいる）の場合、
-    // 所属するレベルを計算する。
-    const level = this._calcLevel(leftTopMorton, rightBottomMorton);
-
-    // そのレベルでの所属する番号を計算する。
-    // モートン番号の代表値として大きい方を採用する。
-    // これは片方が-1の場合、-1でない方を採用したいため。
-    const larger = Math.max(leftTopMorton, rightBottomMorton);
-    const cellNumber = this._calcCell(larger, level);
-
-    // 線形四分木に追加する。
-    this._addNode(actor, level, cellNumber);
-  }
-  // addActorsは要らない。個別に放り込む。
-
-  // 線形四分木の長さを伸ばす。
-  _expand(){
-    const nextLevel = this._currentLevel + 1;
-    const length = ((4 ** (nextLevel + 1)) - 1) / 3;
-
-    while(this.data.length < length) {
-      this.data.push(null);
-    }
-
-    this._currentLevel++;
-  }
-
-  // 16bitの数値を1bit飛ばしの32bitにする。
-  _separateBit32(n){
-    n = (n|(n<<8)) & 0x00ff00ff;
-    n = (n|(n<<4)) & 0x0f0f0f0f;
-    n = (n|(n<<2)) & 0x33333333;
-    return (n|(n<<1)) & 0x55555555;
-  }
-
-  // x, y座標からモートン番号を算出する。
-  _calc2DMortonNumber(x, y){
-    // 空間の外の場合-1を返す。
-    if(x < 0 || y < 0){
-      return -1;
-    }
-
-    if(x > this._width || y > this._height){
-      return -1;
-    }
-
-    // 空間の中の位置を求める。
-    const xCell = Math.floor(x / (this._width / (2 ** this._currentLevel)));
-    const yCell = Math.floor(y / (this._height / (2 ** this._currentLevel)));
-
-    // x位置とy位置をそれぞれ1bit飛ばしの数にし、
-    // それらをあわせてひとつの数にする。
-    // これがモートン番号となる。
-    return (this._separateBit32(xCell) | (this._separateBit32(yCell)<<1));
-  }
-
-  // オブジェクトの所属レベルを算出する。
-  // XORを取った数を2bitずつ右シフトして、
-  // 0でない数が捨てられたときのシフト回数を採用する。
-  _calcLevel(leftTopMorton, rightBottomMorton){
-    const xorMorton = leftTopMorton ^ rightBottomMorton;
-    let level = this._currentLevel - 1;
-    let attachedLevel = this._currentLevel;
-
-    for(let i = 0; level >= 0; i++){
-      const flag = (xorMorton >> (i * 2)) & 0x3;
-      if(flag > 0){
-        attachedLevel = level;
-      }
-
-      level--;
-    }
-
-    return attachedLevel;
-  }
-
-  // 階層を求めるときにシフトした数だけ右シフトすれば
-  // 空間の位置がわかる。
-  _calcCell(morton, level){
-    const shift = ((this._currentLevel - level) * 2);
-    return morton >> shift;
-  }
-}
-
-// ---------------------------------------------------------------------------------------- //
-// collider関連。
-// 今回は全部円なので円判定のみ。
-// unitの場合は最初に作ったものをinitializeや毎フレームのアップデートで変えていく感じ（余計に作らない）
-// 衝突判定のタイミングはactionの直前、behaviorの直後にする。
-
-class Collider{
-	constructor(){
-		this.type = "";
-    this.index = Collider.index++;
-	}
-}
-
-Collider.index = 0;
-
-// circle.
-// 今のinFrameの仕様だと端っこにいるときによけられてしまう、これは大きくなるとおそらく無視できないので、
-// レクトと画面との共通を取った方がよさそう。その理屈で行くとプレイヤーが端っこにいるときにダメージ受けないはずだが、
-// プレイヤーは毎フレーム放り込んでたので問題が生じなかったのでした。
-// たとえば今の場合、敵が体の半分しか出てない時に倒せない。
-// leftとtopは0とMAX取る。これらは<AREA_WIDTHかつ<AREA_HEIGHTでないといけない。
-// rightとbottomはそれぞれw-1とh-1でMIN取る。これらは>0でないといけない。
-class CircleCollider extends Collider{
-	constructor(x, y, r){
-    super();
-		this.type = "circle";
-		this.x = x;
-		this.y = y;
-		this.r = r;
-	}
-	get left(){ return Math.max(0, this.x - this.r); }
-	get right(){ return Math.min(AREA_WIDTH - 1, this.x + this.r); }
-	get top(){ return Math.max(0, this.y - this.r); }
-	get bottom(){ return Math.min(AREA_HEIGHT - 1, this.y + this.r); }
-  inFrame(){
-    // trueを返さなければTreeには入れない。
-    const flag1 = (this.left < AREA_WIDTH && this.top < AREA_HEIGHT);
-    const flag2 = (this.right > 0 && this.bottom > 0);
-    return flag1 && flag2;
-  }
-	update(x, y, r = -1){
-		this.x = x;
-		this.y = y;
-		if(r > 0){ this.r = r; } // rをupdateしたくないときは(x, y)と記述してくださいね！それでスルーされるので！
-	}
-}
-
-// laser.
-// 四角形と交わる線分って割り出すのどうやるんよ・・んー。
-// 端点は常に・・横か縦でなければ。
-// (x, y)はレーザーの先端のunitのpositionでpx, pyは作った時のparentのpositionになる。
-// そこから画面内に収まるような2点の位置を計算してx, y, px, pyの値とする感じ・・で、wも設定。
-// inFrameやめようと思ったけど、端点が作るマージンwの長方形との交わりくらいは取ってもいいでしょ。
-// left:x-wと0のmax,top:y-wと0のmax,right:x+wとAREA_WIDTH-1のmin,bottom:y+wとAREA_HEIGHT-1のmin.
-class LaserCollider extends Collider{
-  constructor(x, y, px, py, w){
-    super();
-    this.type = "laser";
-    this.x = x;
-    this.y = y;
-    this.px = px;
-    this.py = py;
-    this.w = w; // 幅
-    // laserは衝突しても消えないので、フレームごとに衝突したcolliderのindexを覚えておく必要がある。
-    // 毎回衝突判定の前に空っぽにして、衝突の度にそれを放り込んで照合し既に入ってたらスルー。
-    this.hitIndexList = [];
-  }
-  get left(){ return Math.max(0, Math.min(this.x - this.w, this.px - this.w)); }
-	get right(){ return Math.min(AREA_WIDTH - 1, Math.max(this.x + this.w, this.px + this.w)); }
-	get top(){ return Math.max(0, Math.min(this.y - this.w, this.py - this.w)); }
-	get bottom(){ return Math.min(AREA_HEIGHT - 1, Math.max(this.y + this.w, this.py + this.w)); }
-  inFrame(){
-    const flag1 = (this.left < AREA_WIDTH && this.top < AREA_HEIGHT);
-    const flag2 = (this.right > 0 && this.bottom > 0);
-    return flag1 && flag2;
-  }
-  update(x, y, px, py, w = -1){
-    this.x = x;
-    this.y = y;
-    this.px = px;
-    this.py = py;
-    if(w > 0){ this.w = w; }
-    this.hitIndexList = []; // 当たったcolliderのindexを放り込む
-  }
-  registIndex(index){
-    this.hitIndexList.push(index);
-  }
-  hasIndex(index){
-    // forEach内でreturnを使っても関数を抜けることは出来ません（重要）
-    // ループ処理の中で関数を終えるときは必ずfor文にしましょう！forEachやめろ！
-    for(let i = 0; i < this.hitIndexList.length; i++){
-      const havingIndex = this.hitIndexList[i];
-      if(index === havingIndex){
-        return true;
-      }
-    }
-    return false;
-  }
-}
-
-class CollisionDetector {
-  // 当たり判定を検出する。
-  detectCollision(collider1, collider2) {
-    if(collider1.type == 'circle' && collider2.type == 'circle'){
-      return this.detectCircleCollision(collider1, collider2);
-    }
-    if(collider1.type == 'circle' && collider2.type == 'laser'){
-      return this.detectCircleAndLaserCollision(collider1, collider2);
-    }
-    if(collider1.type == 'laser' && collider2.type == 'circle'){
-      return this.detectCircleAndLaserCollision(collider2, collider1);
-    }
-		return false;
-  }
-  // 円形同士
-  detectCircleCollision(circle1, circle2){
-    const distance = Math.sqrt((circle1.x - circle2.x) ** 2 + (circle1.y - circle2.y) ** 2);
-    const sumOfRadius = circle1.r + circle2.r;
-    return (distance < sumOfRadius);
-  }
-  detectCircleAndLaserCollision(circle, laser){
-    // laserのあれにcircleのindexがもう入ってるときは判定しない
-    if(laser.hasIndex(circle.index)){ return false; }
-    const {x:cx, y:cy, r} = circle;
-    const {x, y, px, py, w} = laser;
-    // 線分に垂直な範囲にいるかどうか
-    const flag1 = ((px - x) * (cx - x) + (py - y) * (cy - y) > 0);
-    const flag2 = ((x - px) * (cx - px) + (y - py) * (cy - py) > 0);
-    if(flag1 && flag2){
-      // 点と直線の距離の公式
-      const upper = abs((py - y) * (cx - x) - (px - x) * (cy - y));
-      const lower = Math.sqrt((px - x) * (px - x) + (py - y) * (py - y));
-      const collide = ((upper / lower) < r + w);
-      if(collide){ laser.registIndex(circle.index); } // 衝突した場合にそのindexを登録。
-      return collide;
-    }
-    return false;
-  }
-}
+// 衝突判定はしません
 
 // ---------------------------------------------------------------------------------------- //
 // ObjectPool.
