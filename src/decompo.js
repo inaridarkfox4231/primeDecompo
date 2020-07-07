@@ -16,7 +16,13 @@
 
 // 疲れた
 // ループって要するにインデックス増やすのをやめるだけでしょ、次のパターンが同じパターンってだけの話。
-// 右の方でカーソルが下に動いてて、
+// 右の方で
+
+// これからやること
+// 衝突判定部分カット
+// 背景は白で影つけたい
+// クリックで停止と再生（停止中はスライダー動かせないのとモード切替禁止）
+// セーブボタン
 
 "use strict";
 
@@ -33,6 +39,7 @@ let mySystem; // これをメインに使っていく
 const AUTO = 0;
 const RANDOM = 1;
 const MANUAL = 2;
+const INITIAL_NUMBER = 111;
 
 // ---------------------------------------------------------------------------------------- //
 // system constants.
@@ -248,7 +255,7 @@ class System{
     this._detector = new CollisionDetector();
     // プログラム用
     this.mode = AUTO; // 現在のモード
-    this.currentNumber = 115; // 表示中のパターンの数
+    this.currentNumber = INITIAL_NUMBER; // 表示中のパターンの数
     this.currentPrimeArray = getDecompo(this.currentNumber); // 素因数列、背景にも使う（計算式表示）
     this.primeArrayText = getPrimeArrayText(this.currentPrimeArray); // 数分解の様子を表示するテキスト。
     this.seed = this.createSeed(); // 表示中のパターンの種
