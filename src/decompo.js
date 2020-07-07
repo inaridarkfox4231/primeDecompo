@@ -7,12 +7,16 @@
 // 背景はグラデ使う感じで（長方形とかランダムに配置するのもいいかも）
 // 解析関連はすべて無くしてね。
 
-// 具体的に数を指定する方法？？
-// AUTO:自動的に数が増えていく。数ごとの保持タイムは数で決まる感じね。
-// MANUAL:そのときの数パターンが固定される。ホイールで数が変わり、再生ボタンで再生される。停止に変わる。停止を押すと再開。
-// MANUALになると自動的に停止になる。
-// AUTOに戻すとそのときの数からインクリメントが再開される。
-// 上限は999で、そのあと1に戻る。
+// AUTO:自動的に1ずつ増える
+// RANDOM:2~999のどれかがランダムで現れるのが繰り返される感じ
+// MANUAL:自由に指定してパターンを固定できる感じ
+// ほんとは弾丸が全部消えてから次のパターンに行くようにしたいんだけどね。
+// どうせ計算無理だからループなくして再生できるようにしようね。
+// {fire:false→true(発射あと),bulletNum:(rectの数)}.trueで0になったら次、的な。
+
+// 疲れた
+// ループって要するにインデックス増やすのをやめるだけでしょ、次のパターンが同じパターンってだけの話。
+// 右の方でカーソルが下に動いてて、
 
 "use strict";
 
@@ -27,7 +31,8 @@ let mySystem; // これをメインに使っていく
 
 // モード用
 const AUTO = 0;
-const MANUAL = 1;
+const RANDOM = 1;
+const MANUAL = 2;
 
 // ---------------------------------------------------------------------------------------- //
 // system constants.
@@ -78,7 +83,6 @@ function setup(){
   // unitPoolはあっちでしか使ってないのでこれでいいはず・・・
   createCanvas(AREA_WIDTH + 160, AREA_HEIGHT);
   angleMode(DEGREES);
-  textSize(16);
   textAlign(CENTER, CENTER);
 
   let weaponData = [];
@@ -86,6 +90,7 @@ function setup(){
 
   // プレイヤーの攻撃パターン作成
   // デフォルト。黒い弾丸をいっぱい。
+  // 今回これ要らんけどね。
   weaponData[weaponCapacity++] = {
     action:{
       main:[{shotAction:"go"}, {catch:"a"}, {nway:{count:4, interval:25}},
@@ -99,8 +104,7 @@ function setup(){
 }
 
 function draw(){
-  mySystem.drawBackground();
-  //background(mySystem.backgroundColor);
+  mySystem.drawBackground(); // 背景
 
   mySystem.update(); // 更新
 
@@ -108,9 +112,11 @@ function draw(){
 
   mySystem.execute(); // 行動
 
+  mySystem.eject(); // 排除
+
   mySystem.draw(); // 描画
 
-  drawConfig();
+  drawConfig(); // コンフィグ
 }
 
 // ---------------------------------------------------------------------------------------- //
@@ -138,20 +144,49 @@ function keyPressed(){
 // ---------------------------------------------------------------------------------------- //
 // ClickAction.
 
-// ここではAUTO/MANUALの切り替えとパターン実行中/停止中の切り替えを行います。
-function mouseClicked(){
-
+// モードチェンジ
+function mousePressed(){
+  if(mouseX < 540 || mouseX > 620){ return; }
+  if(mouseY < 20 || mouseY > 180){ return; }
+  if((mouseY - 20) % 60 > 40){ return; }
+  let id = Math.floor((mouseY - 20) / 60);
+  switch(id){
+    case 0: mySystem.setMode(AUTO); break;
+    case 1: mySystem.setMode(RANDOM); break;
+    case 2: mySystem.setMode(MANUAL); break;
+  }
 }
 
-// パターンの数を変えるときに使う。AUTOの時は自動で数が更新されるので使われない。
-function mouseWheel(e){
-  return false;
+function drawButton(x, y, name, r, g, b, flag){
+  fill(r, g, b, (flag ? 255 : 64));
+  rect(x - 40, y - 20, 80, 40);
+  fill(255);
+  text(name, x, y);
 }
-
-// 数を示す文字盤、AUTO/MANUALのモード、再生/停止のボタンが上から順に並んでいる。
+function drawButtonSet(){
+  textSize(16);
+  const _mode = mySystem.getMode();
+  drawButton(580, 40, "AUTO", 237, 28, 36, _mode === AUTO);
+  drawButton(580, 100, "RANDOM", 34, 177, 76, _mode === RANDOM);
+  drawButton(580, 160, "MANUAL", 63, 72, 204, _mode === MANUAL);
+}
+function drawSlider(){
+  fill(70);
+  rect(480, 0, 40, 600);
+  const cn = mySystem.getCurrentNumber();
+  let pos = 10 + Math.floor(((cn - 2) / 997) * 580);
+  fill(0, 128, 255);
+  rect(480, pos - 10, 40, 20);
+  fill(0);
+  textSize(16);
+  text(cn, 500, pos);
+}
+// AUTO/RANDOM/MANUAL
 function drawConfig(){
   fill(220);
   rect(AREA_WIDTH, 0, 160, AREA_HEIGHT);
+  drawButtonSet();
+  drawSlider();
 }
 
 // ここから下にbulletLanguage関連を移植する
@@ -213,11 +248,11 @@ class System{
     this._detector = new CollisionDetector();
     // プログラム用
     this.mode = AUTO; // 現在のモード
-    this.currentNumber = 5; // 表示中のパターンの数
+    this.currentNumber = 115; // 表示中のパターンの数
     this.currentPrimeArray = getDecompo(this.currentNumber); // 素因数列、背景にも使う（計算式表示）
     this.primeArrayText = getPrimeArrayText(this.currentPrimeArray); // 数分解の様子を表示するテキスト。
     this.seed = this.createSeed(); // 表示中のパターンの種
-    this.patternLife = Math.max(120, 60 * this.currentPrimeArray.length); // そのパターンの表示時間.
+    this.patternState = {onFire:false, next:false}; // onFire:弾丸出てる, next:次行ける
     // 背景作る
     this.prepareBackground();
 	}
@@ -231,7 +266,7 @@ class System{
     seed.short = {preparation:[{speed:["set", 0.1, "$span"]}, {shotDirection:["rel", 90]}]};
     let actionData = {};
     const waitSpan = Math.max(120, 60 * this.currentPrimeArray.length);
-    actionData.main = [{deco:{shape:"rectSmall", color:"dkred"}}, {catch:"a"}, {shotAction:"rad0"}, {fire:""}, {wait:waitSpan}, {loop:INF, back:"a"}];
+    actionData.main = [{deco:{shape:"rectSmall", color:"dkred"}}, {shotAction:"rad0"}, {fire:""}];
     let actionName = "";
     let divider, colorName;
     let span = 30; // 止まるまでのタイムスパンは徐々に減らしていく・・
@@ -290,24 +325,50 @@ class System{
     return this; // こういうのはメソッドチェーンで書くといい
   }
   registShape(name, _shape){
+    _shape.name = name; // 名前付けてないの？？
     this.drawShape[name] = _shape;
     return this; // メソッドチェーン
   }
+  numberControl(){
+    if(mouseX < AREA_WIDTH || mouseX > AREA_WIDTH + 40){ return; }
+    let y = constrain(mouseY, 10, 590);
+    let n = Math.floor((y - 10) / 580 * 997) + 2;
+    this.setCurrentNumber(n);
+  }
+  patternStateUpdate(){
+    let flag = false;
+    for(let u of this.unitArray){
+      if(u.shape.name.match(/rect/) !== null){ flag = true; break; } // 1個でも見つかればいいんだよ
+    }
+    if(flag){
+      this.patternState.onFire = true;
+    }else if(this.patternState.onFire){
+      this.patternState.next = true;
+    }
+  }
   patternUpdate(){
-    this.currentNumber++;
+    switch(this.mode){
+      case AUTO:
+        this.currentNumber++; if(this.currentNumber > 999){ this.currentNumber = 2; } break;
+      case RANDOM:
+        this.currentNumber = Math.floor(random() * 997) + 2; break;
+      case MANUAL:
+        break; // 変えない。というかスライダーで変える。
+    }
     // 数を減らしていく。0になったら次。
     this.currentPrimeArray = getDecompo(this.currentNumber); // 素因数列、背景にも使う（計算式表示）
     this.primeArrayText = getPrimeArrayText(this.currentPrimeArray); // 数分解の様子を表示するテキスト。
     this.seed = this.createSeed(); // 表示中のパターンの種
-    this.patternLife = Math.max(120, 60 * this.currentPrimeArray.length); // そのパターンの表示時間。下限は120. MANUAL時はINF.
+    this.patternState = {onFire:false, next:false};
     this.setPattern();
   }
 	update(){
 		this.player.update();
     this.unitArray.loop("update");
     this.particleArray.loopReverse("update");
-    this.patternLife--;
-    if(this.patternLife === 0){ this.patternUpdate(); }
+    if(this.mode === MANUAL && mouseIsPressed){ this.numberControl(); } // MANUALモード限定
+    this.patternStateUpdate();
+    if(this.patternState.next){ this.patternUpdate(); }
 	}
   collisionCheck(){
     //return;
@@ -446,7 +507,6 @@ class System{
     fill(0);
     textSize(24);
     text(this.primeArrayText, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.8);
-    textSize(16);
   }
 	draw(){
 		this.player.draw();
@@ -464,6 +524,18 @@ class System{
 	}
   getCapacity(){
     return this.unitArray.length;
+  }
+  getMode(){
+    return this.mode;
+  }
+  setMode(newMode){
+    this.mode = newMode;
+  }
+  getCurrentNumber(){
+    return this.currentNumber;
+  }
+  setCurrentNumber(newNumber){
+    this.currentNumber = newNumber;
   }
   registUnitColors(){
     // 第3引数：damageFactor, 第4引数：lifeFactor. バランス調整が課題。
