@@ -92,7 +92,6 @@ let vs =
 let fs_shadow =
 "precision mediump float;" +
 "uniform vec2 u_resolution;" +
-"uniform vec2 u_mouse;" +
 "uniform float u_time;" +
 "uniform vec2 shadowOffset;" +
 "uniform sampler2D base;" +
@@ -104,14 +103,14 @@ let fs_shadow =
 "  vec4 shadow;" +
 "  vec2 diff;" +
 "  vec2 offset = shadowOffset / u_resolution.xy;" +
-"  for(float dx = -3.0; dx <= 3.0; dx += 1.0){" +
-"    for(float dy = -3.0; dy <= 3.0; dy += 1.0){" +
+"  for(float dx = -2.0; dx <= 2.0; dx += 1.0){" +
+"    for(float dy = -2.0; dy <= 2.0; dy += 1.0){" +
 "      diff.x = dx / u_resolution.x;" +
 "      diff.y = dy / u_resolution.y;" +
 "      shadow += texture2D(base, p - offset + diff);" +
 "    }" +
 "  }" +
-"  shadow /= 49.0;" +
+"  shadow /= 25.0;" +
 "  shadow = vec4(vec3(0.3), shadow.r + shadow.g + shadow.b + shadow.a) / 4.0;" +
 "  gl_FragColor = mix(shadow, pict, pict.a);" +
 "}";
@@ -175,16 +174,9 @@ function draw(){
 
 // なんかkeyだと動かないから・・何で？
 function keyTyped(){
-  if(keyCode === 80){ // "P"キー。
+  if(key === 'p'){ // "P"キー。
     if(isLoop){ noLoop(); isLoop = false; return; }
     else{ loop(); isLoop = true; return; }
-  }
-}
-
-function keyPressed(){
-  // シフトキーでショットチェンジ（予定）
-  if(keyCode === SHIFT){
-    mySystem.player.shiftPattern();
   }
 }
 
@@ -418,7 +410,7 @@ class System{
     this.bg = createGraphics(AREA_WIDTH, AREA_HEIGHT);
     this.bg.noStroke();
     for(let i = 0; i < 100; i++){
-      this.bg.fill(Math.floor(i * 2.55));
+      this.bg.fill(i * 2.55, 150 + i, 255);
       this.bg.rect(0, Math.floor(AREA_HEIGHT * i * 0.01), AREA_WIDTH, AREA_HEIGHT * 0.01);
     }
   }
@@ -430,13 +422,23 @@ class System{
     textSize(24);
     text(this.primeArrayText, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.8);
   }
+  addShadow(){
+    // 影を付ける
+    shadowShader.setUniform("u_resolution", [AREA_WIDTH, AREA_HEIGHT]);
+    shadowShader.setUniform("u_time", millis() / 1000);  // 影が動くのを表現できたら面白そう
+    shadowShader.setUniform("shadowColor", [0, 0, 0]);
+    shadowShader.setUniform("shadowOffset", [8, 8]);
+    shadowShader.setUniform("base", base);
+    shading.quad(-1, -1, -1, 1, 1, 1, 1, -1);
+  }
 	draw(){
     base.clear();
     Object.keys(this.drawGroup).forEach((name) => {
       base.fill(this.drawColor[name]);
       this.drawGroup[name].loop("draw"); // 色別に描画(laserは別立て)
     })
-    image(base, 0, 0);
+    this.addShadow();
+    image(shading, 0, 0);
     // ここでテキスト
     this.drawPrimeArrayText();
 	}
