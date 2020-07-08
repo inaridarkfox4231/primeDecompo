@@ -20,9 +20,14 @@
 
 // これからやること
 // 衝突判定部分カット
-// 背景は白で影つけたい
+// 背景工夫したい。影は要らない。
 // クリックで停止と再生（停止中はスライダー動かせないのとモード切替禁止）
 // セーブボタン
+// それ以上はやらない。
+
+// shaderできたから放り込んでみる。
+
+// rectSmallの個数を目で見て分かるようにしたら面白いかも。
 
 "use strict";
 
@@ -34,6 +39,8 @@ const DEFAULT_PATTERN_INDEX = 0;
 let isLoop = true;
 
 let mySystem; // これをメインに使っていく
+let base; // これを毎回clearしてそこに弾幕を置いてさらに影を付けて背景の上に貼り付ける。
+// 描画順・・baseをclear, 弾幕貼り付け, 影付け, 背景, base, 最後に数式。
 
 // モード用
 const AUTO = 0;
@@ -71,6 +78,45 @@ let radialId = 0;
 let lineId = 0;  // catchの度に増やしていく
 
 // ---------------------------------------------------------------------------------------- //
+// shader関連.
+let shading; // シェーダーを通したキャンバス
+let shadowShader; // シェーダー
+
+let vs =
+"precision mediump float;" +
+"attribute vec3 aPosition;" +
+"void main(void){" +
+"  gl_Position = vec4(aPosition, 1.0);" +
+"}";
+
+let fs_shadow =
+"precision mediump float;" +
+"uniform vec2 u_resolution;" +
+"uniform vec2 u_mouse;" +
+"uniform float u_time;" +
+"uniform vec2 shadowOffset;" +
+"uniform sampler2D base;" +
+"const float pi = 3.14159;" +
+"void main(void){" +
+"  vec2 p = gl_FragCoord.xy * 0.5 / u_resolution.xy;" +
+"  p.y = 1.0 - p.y;" +
+"  vec4 pict = texture2D(base, p);" +
+"  vec4 shadow;" +
+"  vec2 diff;" +
+"  vec2 offset = shadowOffset / u_resolution.xy;" +
+"  for(float dx = -3.0; dx <= 3.0; dx += 1.0){" +
+"    for(float dy = -3.0; dy <= 3.0; dy += 1.0){" +
+"      diff.x = dx / u_resolution.x;" +
+"      diff.y = dy / u_resolution.y;" +
+"      shadow += texture2D(base, p - offset + diff);" +
+"    }" +
+"  }" +
+"  shadow /= 49.0;" +
+"  shadow = vec4(vec3(0.3), shadow.r + shadow.g + shadow.b + shadow.a) / 4.0;" +
+"  gl_FragColor = mix(shadow, pict, pict.a);" +
+"}";
+
+// ---------------------------------------------------------------------------------------- //
 // preload.
 // もし画像とかjsonとか引き出す必要があれば。
 
@@ -89,9 +135,14 @@ function setup(){
   // さらにunitPoolも生成する（1024）
   // unitPoolはあっちでしか使ってないのでこれでいいはず・・・
   createCanvas(AREA_WIDTH + 160, AREA_HEIGHT);
-  angleMode(DEGREES);
+  base = createGraphics(AREA_WIDTH, AREA_HEIGHT);
+  base.noStroke();
+  shading = createGraphics(AREA_WIDTH, AREA_HEIGHT, WEBGL);
+  shadowShader = shading.createShader(vs, fs_shadow);
+  shading.shader(shadowShader);
+  angleMode(DEGREES); // これ無くしちゃだめだよ。
   textAlign(CENTER, CENTER);
-  noStroke();
+  noStroke(); // これもコンフィグをグラフィックで書くようにするまでは・・そうなったら不要だけどね。
 
   let weaponData = [];
   let weaponCapacity = 0;
@@ -105,8 +156,6 @@ function draw(){
   mySystem.drawBackground(); // 背景
 
   mySystem.update(); // 更新
-
-  //mySystem.collisionCheck(); // 衝突判定
 
   mySystem.execute(); // 行動
 
@@ -229,9 +278,7 @@ function createSystem(w, h, unitCapacity){
 class System{
 	constructor(){
     this.unitArray = new CrossReferenceArray();
-    //this.particleArray = new SimpleCrossReferenceArray();
     this.backgroundColor = color(220, 220, 255); // デフォルト（薄い青）
-    //this.infoColor = color(0); // デフォルト（情報表示の色、黒）
     this.drawColor = {}; // 色の辞書
     this.registUnitColors();
     this.drawShape = {}; // 形を表現する関数の辞書
@@ -377,16 +424,21 @@ class System{
   }
   drawBackground(){
     image(this.bg, 0, 0);
+  }
+  drawPrimeArrayText(){
     fill(0);
     textSize(24);
     text(this.primeArrayText, AREA_WIDTH * 0.5, AREA_HEIGHT * 0.8);
   }
 	draw(){
+    base.clear();
     Object.keys(this.drawGroup).forEach((name) => {
-      fill(this.drawColor[name]);
+      base.fill(this.drawColor[name]);
       this.drawGroup[name].loop("draw"); // 色別に描画(laserは別立て)
     })
-    // 数字書くのやめ。
+    image(base, 0, 0);
+    // ここでテキスト
+    this.drawPrimeArrayText();
 	}
   getCapacity(){
     return this.unitArray.length;
@@ -756,17 +808,12 @@ class DrawWedgeShape extends DrawShape{
     this.size = (h + b) / 2;
     this.damage = this.size / 4.5; // 基礎ダメージ。1, 2, 3, 6.
   }
-  set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size);
-    //return;
-  }
   draw(unit){
     const {x, y} = unit.position;
     const direction = unit.direction;
     const dx = cos(direction);
     const dy = sin(direction);
-    triangle(x + this.h * dx,          y + this.h * dy,
+    base.triangle(x + this.h * dx,          y + this.h * dy,
              x - this.h * dx + this.b * dy, y - this.h * dy - this.b * dx,
              x - this.h * dx - this.b * dy, y - this.h * dy + this.b * dx);
   }
@@ -781,17 +828,13 @@ class DrawDiaShape extends DrawShape{
     this.size = size;
     this.damage = 1; // 基礎ダメージ。サイズで変えたい・・
   }
-  set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size * 0.75);
-  }
   draw(unit){
     const {x, y} = unit.position;
     const {direction} = unit;
     const c = cos(direction);
     const s = sin(direction);
     const r = this.size;
-    quad(x + r * c, y + r * s, x + 0.5 * r * s, y - 0.5 * r * c,
+    base.quad(x + r * c, y + r * s, x + 0.5 * r * s, y - 0.5 * r * c,
          x - r * c, y - r * s, x - 0.5 * r * s, y + 0.5 * r * c);
   }
 }
@@ -809,17 +852,13 @@ class DrawRectShape extends DrawShape{
     this.size = (h + w) / 2;
     this.damage = this.h / 4; // 基礎ダメージ。1.5, 3.0, 4.5, 9.0
   }
-  set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size);
-  }
   draw(unit){
     // unit.directionの方向に長い長方形
     const {x, y} = unit.position;
     const {direction} = unit;
     const c = cos(direction);
     const s = sin(direction);
-    quad(x + c * this.h + s * this.w, y + s * this.h - c * this.w,
+    base.quad(x + c * this.h + s * this.w, y + s * this.h - c * this.w,
          x + c * this.h - s * this.w, y + s * this.h + c * this.w,
          x - c * this.h - s * this.w, y - s * this.h + c * this.w,
          x - c * this.h + s * this.w, y - s * this.h - c * this.w);
@@ -839,15 +878,13 @@ class DrawSquareShape extends DrawShape{
     this.life = size / 2; // 基礎ライフ。5, 10, 15, 30
   }
   set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size);
     unit.drawParam = {rotationAngle:45, rotationSpeed:2};
   }
   draw(unit){
     const {x, y} = unit.position;
     const c = cos(unit.drawParam.rotationAngle) * this.size;
     const s = sin(unit.drawParam.rotationAngle) * this.size;
-    quad(x + c, y + s, x - s, y + c, x - c, y - s, x + s, y - c);
+    base.quad(x + c, y + s, x - s, y + c, x - c, y - s, x + s, y - c);
     unit.drawParam.rotationAngle += unit.drawParam.rotationSpeed;
   }
 }
@@ -865,8 +902,6 @@ class DrawStarShape extends DrawShape{
     this.damage = size;   // 基礎ダメージ。3, 6, 9, 18.
   }
   set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size * 1.2); // ちょっと大きく
     unit.drawParam = {rotationAngle:0, rotationSpeed:2};
   }
   draw(unit){
@@ -885,8 +920,8 @@ class DrawStarShape extends DrawShape{
   	}
     v.push(...[x - r * c, y - r * s]);
     // u1 u4 v(三角形), u0 u2 v u3(鋭角四角形).
-    triangle(u[1][0], u[1][1], u[4][0], u[4][1], v[0], v[1]);
-    quad(u[0][0], u[0][1], u[2][0], u[2][1], v[0], v[1], u[3][0], u[3][1]);
+    base.triangle(u[1][0], u[1][1], u[4][0], u[4][1], v[0], v[1]);
+    base.quad(u[0][0], u[0][1], u[2][0], u[2][1], v[0], v[1], u[3][0], u[3][1]);
     unit.drawParam.rotationAngle += unit.drawParam.rotationSpeed;
   }
 }
@@ -901,8 +936,6 @@ class DrawDoubleWedgeShape extends DrawShape{
     this.life = size; // 基礎ライフ：10, 20, 30, 60.
   }
   set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size); // 本来の大きさで。
     unit.drawParam = {rotationAngle:0, rotationSpeed:4};
   }
   draw(unit){
@@ -910,9 +943,9 @@ class DrawDoubleWedgeShape extends DrawShape{
     const direction = unit.drawParam.rotationAngle
     const c = cos(direction) * this.size;
     const s = sin(direction) * this.size;
-    quad(x + c, y + s, x - 0.5 * c + ROOT_THREE_HALF * s, y - 0.5 * s - ROOT_THREE_HALF * c,
+    base.quad(x + c, y + s, x - 0.5 * c + ROOT_THREE_HALF * s, y - 0.5 * s - ROOT_THREE_HALF * c,
              x,     y, x - 0.5 * c - ROOT_THREE_HALF * s, y - 0.5 * s + ROOT_THREE_HALF * c);
-    quad(x - c, y - s, x + 0.5 * c + ROOT_THREE_HALF * s, y + 0.5 * s - ROOT_THREE_HALF * c,
+    base.quad(x - c, y - s, x + 0.5 * c + ROOT_THREE_HALF * s, y + 0.5 * s - ROOT_THREE_HALF * c,
              x,     y, x + 0.5 * c - ROOT_THREE_HALF * s, y + 0.5 * s + ROOT_THREE_HALF * c);
     unit.drawParam.rotationAngle += unit.drawParam.rotationSpeed;
   }
@@ -929,8 +962,6 @@ class DrawCherryShape extends DrawShape{
     this.life = size * 0.8;
   }
   set(unit){
-    // colliderInitialize.
-    //unit.collider.update(unit.position.x, unit.position.y, this.size); // 本来の大きさで。
     unit.drawParam = {rotationAngle:0, rotationSpeed:4};
   }
   draw(unit){
@@ -939,7 +970,7 @@ class DrawCherryShape extends DrawShape{
     const c = cos(direction) * this.size * 0.75;
     const s = sin(direction) * this.size * 0.75;
     for(let i = 0; i < 5; i++){
-      arc(x + c * COS_PENTA[i] - s * SIN_PENTA[i], y + c * SIN_PENTA[i] + s * COS_PENTA[i],
+      base.arc(x + c * COS_PENTA[i] - s * SIN_PENTA[i], y + c * SIN_PENTA[i] + s * COS_PENTA[i],
           this.size, this.size, 45 + 72 * i + direction, 315 + 72 * i + direction);
     }
     unit.drawParam.rotationAngle += unit.drawParam.rotationSpeed;
