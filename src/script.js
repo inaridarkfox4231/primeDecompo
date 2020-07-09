@@ -37,6 +37,21 @@ const DEFAULT_PATTERN_INDEX = 0;
 // 今のままでいいからとりあえず関数化とか変数化、やる。
 // 解析用グローバル変数
 let isLoop = true;
+let showInfo = true;
+
+// 解析用パラメータ
+let runTimeSum = 0;
+let runTimeAverage = 0;
+let runTimeMax = 0;
+let updateTimeAtMax = 0;
+let collisionCheckTimeAtMax = 0;
+let actionTimeAtMax = 0;
+let ejectTimeAtMax = 0;
+let drawTimeAtMax = 0;
+let usingUnitMax = 0;
+const INDENT = 40;
+const AVERAGE_CALC_SPAN = 10;
+const TEXT_INTERVAL = 25;
 
 let mySystem; // これをメインに使っていく
 let base; // これを毎回clearしてそこに弾幕を置いてさらに影を付けて背景の上に貼り付ける。
@@ -112,7 +127,7 @@ let fs_shadow =
 "  }" +
 "  shadow /= 25.0;" +
 "  shadow = vec4(vec3(0.3), shadow.r + shadow.g + shadow.b + shadow.a) / 4.0;" +
-"  gl_FragColor = mix(shadow, pict, pict.a);" +
+"  gl_FragColor = mix(shadow, pict, step(0.01, pict.a));" +
 "}";
 
 // ---------------------------------------------------------------------------------------- //
@@ -154,20 +169,93 @@ function setup(){
 function draw(){
   mySystem.drawBackground(); // 背景
 
+  const runStart = performance.now();
+	const updateStart = performance.now();
   mySystem.update(); // 更新
-
+  const actionStart = performance.now();
   mySystem.execute(); // 行動
-
+  const actionEnd = performance.now();
+	const updateEnd = performance.now();
+	const ejectStart = performance.now();
   mySystem.eject(); // 排除
-
+	const ejectEnd = performance.now();
+	const drawStart = performance.now();
   mySystem.draw(); // 描画
+	const drawEnd = performance.now();
+  const runEnd = performance.now();
+
+  if(showInfo){ showPerformanceInfo(runEnd - runStart, actionEnd - actionStart,
+                                    updateEnd - updateStart, ejectEnd - ejectStart, drawEnd - drawStart); }
 
   drawConfig(); // コンフィグ
 }
 
 // ---------------------------------------------------------------------------------------- //
 // PerformanceInfomation.
-// 今回は無し。
+function showPerformanceInfo(runTime, actionTime, updateTime, ejectTime, drawTime){
+  textSize(16);
+  textAlign(LEFT);
+  let y = 0; // こうすれば新しいデータを挿入しやすくなる。指定しちゃうといろいろとね・・
+  // ほんとは紐付けとかしないといけないんだろうけど。
+	fill(0);
+  y += TEXT_INTERVAL;
+  displayInteger(mySystem.getCapacity(), INDENT, y, "using");
+
+  y += TEXT_INTERVAL;
+  displayRealNumber(runTime, INDENT, y, "runTime");
+
+  runTimeSum += runTime;
+  if(frameCount % AVERAGE_CALC_SPAN === 0){
+		runTimeAverage = runTimeSum / AVERAGE_CALC_SPAN;
+		runTimeSum = 0;
+	}
+  y += TEXT_INTERVAL;
+  displayRealNumber(runTimeAverage, INDENT, y, "runTimeAverage");
+  if(runTimeMax < runTime){
+    runTimeMax = runTime;
+    actionTimeAtMax = actionTime;
+    updateTimeAtMax = updateTime;
+    ejectTimeAtMax = ejectTime;
+    drawTimeAtMax = drawTime;
+  }
+  y += TEXT_INTERVAL;
+  displayRealNumber(runTimeMax, INDENT, y, "runTimeMax");
+  y += TEXT_INTERVAL;
+  displayRealNumber(updateTimeAtMax, INDENT, y, "--update");
+  y += TEXT_INTERVAL;
+  displayRealNumber(actionTimeAtMax, INDENT, y, "----action");
+  // actionはcommand別の内訳が欲しい。
+  y += TEXT_INTERVAL;
+  displayRealNumber(ejectTimeAtMax, INDENT, y, "--eject");
+  y += TEXT_INTERVAL;
+  displayRealNumber(drawTimeAtMax, INDENT, y, "--draw");
+  // 別にいいけど、runTimeMaxになった時だけあれ、内訳を更新して表示してもいいと思う。--とか付けて。
+
+  if(usingUnitMax < mySystem.getCapacity()){ usingUnitMax = mySystem.getCapacity(); }
+  y += TEXT_INTERVAL * 2;
+  displayInteger(usingUnitMax, INDENT, y, "usingUnitMax");
+
+  // 色について内訳表示
+  y += TEXT_INTERVAL * 2;
+  Object.keys(mySystem.drawGroup).forEach((name) => {
+    displayInteger(mySystem.drawGroup[name].length, INDENT, y, name);
+    y += TEXT_INTERVAL;
+  })
+  textAlign(CENTER, CENTER);
+}
+
+// 表示関数（実数版）
+function displayRealNumber(value, x, y, explanation, precision = 4){
+  // 与えられた実数を(x, y)の位置に小数点以下precisionまで表示する感じ(explanation:~~~って感じ)
+  const valueStr = value.toPrecision(precision);
+  const innerText = `${valueStr}ms`;
+  text(explanation + ":" + innerText, x, y);
+}
+
+// 整数版
+function displayInteger(value, x, y, explanation){
+  text(explanation + ":" + value, x, y);
+}
 
 // ---------------------------------------------------------------------------------------- //
 // KeyAction.
@@ -330,7 +418,9 @@ class System{
     let ptn = parsePatternSeed(seed);
     console.log(ptn);
     createUnit(ptn);
-    // プレイヤーになんかしないの？って話。
+    // 解析情報の初期化
+    usingUnitMax = 0;
+    runTimeMax = 0;
   }
   registDrawGroup(unit){
     // colorから名前を引き出す。
@@ -1639,7 +1729,6 @@ function interpretCommand(data, command, index){
   }
   if(_type === "deco"){
     // shotプロパティをいじる。{deco:{speed:8, direction:90, color:"grey", shape:"wedgeMiddle"}}とかする。
-    // プログラムのために"num"を追加
     const propNames = ["speed", "direction", "color", "shape"];
     propNames.forEach((name) => {
       if(command.deco.hasOwnProperty(name)){
@@ -1783,10 +1872,6 @@ function execute(unit, command){
   }
 
   if(_type === "fire"){
-    // fire忘れてた
-    if(unit.isPlayer && !keyIsDown(32)){
-      return false; // プレイヤーの場合はスペースキーが押されなければ離脱する。
-    }
     executeFire(unit);
     unit.actionIndex++;
     return true; // 発射したら次へ！
@@ -1844,7 +1929,7 @@ function execute(unit, command){
     return true; // ループは抜けない
   }
   if(_type === "deco"){
-    // ショットいろいろ（shotNumを設定できるように改良してる）
+    // ショットいろいろ
     if(command.hasOwnProperty("speed")){ unit.shotSpeed = command.speed; }
     if(command.hasOwnProperty("direction")){ unit.shotDirection = command.direction; }
     if(command.hasOwnProperty("color")){ unit.shotColor = entity.drawColor[command.color]; }
