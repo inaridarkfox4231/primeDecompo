@@ -29,15 +29,16 @@
 
 // rectSmallの個数を目で見て分かるようにしたら面白いかも。
 
+// いいや。停止再生save作って完成させちゃいましょう。
+
 "use strict";
 
 const INF = Infinity; // 長いので
 const DEFAULT_PATTERN_INDEX = 0;
 
 // 今のままでいいからとりあえず関数化とか変数化、やる。
-// 解析用グローバル変数
-let isLoop = true;
-let showInfo = true;
+// 解析用グローバル変数(isLoopは廃止)
+let showInfo = false;
 
 // 解析用パラメータ
 let runTimeSum = 0;
@@ -170,6 +171,7 @@ function draw(){
   mySystem.drawBackground(); // 背景
 
   const runStart = performance.now();
+
 	const updateStart = performance.now();
   mySystem.update(); // 更新
   const actionStart = performance.now();
@@ -182,6 +184,7 @@ function draw(){
 	const drawStart = performance.now();
   mySystem.draw(); // 描画
 	const drawEnd = performance.now();
+
   const runEnd = performance.now();
 
   if(showInfo){ showPerformanceInfo(runEnd - runStart, actionEnd - actionStart,
@@ -262,29 +265,42 @@ function displayInteger(value, x, y, explanation){
 
 // なんかkeyだと動かないから・・何で？
 function keyTyped(){
-  if(key === 'p'){ // "P"キー。
-    if(isLoop){ noLoop(); isLoop = false; return; }
-    else{ loop(); isLoop = true; return; }
+  if(key === 'i'){
+    if(showInfo){ showInfo = false; return; }
+    else{ showInfo = true; return; }
   }
 }
 
 // ---------------------------------------------------------------------------------------- //
 // ClickAction.
 
-// モードチェンジ
-function mousePressed(){
-  if(mouseX < 540 || mouseX > 620){ return; }
+// モード変更
+function checkModeButton(){
   if(mouseY < 20 || mouseY > 180){ return; }
   if((mouseY - 20) % 60 > 40){ return; }
   let id = Math.floor((mouseY - 20) / 60);
-  switch(id){
-    case 0: mySystem.setMode(AUTO); break;
-    case 1: mySystem.setMode(RANDOM); break;
-    case 2: mySystem.setMode(MANUAL); break;
+  mySystem.setMode(id);
+}
+// 停止/再生とセーブ
+function checkOtherButton(){
+  if(mouseY < 200 || mouseY > 300){ return; }
+  if(mouseY < 240){
+    // 停止/再生
+    if(mySystem.getActive()){ mySystem.inActivate(); }else{ mySystem.activate(); }
+  }else if(mouseY > 260){
+    // save
+    mySystem.save();
   }
 }
+// マウスプレスでいろいろやる
+function mousePressed(){
+  if(mouseX < 540 || mouseX > 620){ return; }
+  if(mySystem.getActive()){ checkModeButton(); }
+  checkOtherButton();
+}
 
-function drawButton(x, y, name, r, g, b, flag){
+// 各種ボタン描画
+function drawButton(x, y, name, r, g, b, flag = true){
   fill(r, g, b, (flag ? 255 : 64));
   rect(x - 40, y - 20, 80, 40);
   fill(255);
@@ -308,12 +324,32 @@ function drawSlider(){
   textSize(16);
   text(cn, 500, pos);
 }
-// AUTO/RANDOM/MANUAL
+function drawOnOff(){
+  (mySystem.getActive() ? fill(255, 128, 0) : fill(0, 128, 255));
+  rect(540, 200, 80, 40);
+  fill(255);
+  circle(580, 220, 35);
+  if(mySystem.getActive()){
+    fill(255, 128, 0);
+    rect(572, 210, 4, 20);
+    rect(584, 210, 4, 20);
+  }else{
+    fill(0, 128, 255);
+    triangle(570, 210, 570, 230, 590, 220);
+  }
+}
+function drawSaveButton(){
+  drawButton(580, 280, "SAVE", 163, 73, 164);
+}
+
+// AUTO/RANDOM/MANUAL/On,Off/SAVE
 function drawConfig(){
   fill(220);
   rect(AREA_WIDTH, 0, 160, AREA_HEIGHT);
   drawButtonSet();
   drawSlider();
+  drawOnOff();
+  drawSaveButton();
 }
 
 // ここから下にbulletLanguage関連を移植する
@@ -357,6 +393,9 @@ function createSystem(w, h, unitCapacity){
 
 class System{
 	constructor(){
+    this.active = true; // ボタンクリックで動いたり止まったりを制御するやつ。
+    this.properFrameCount = 0; // セーブするときに数の情報とこれを使う。
+    this.canvasForSave = createGraphics(AREA_WIDTH, AREA_HEIGHT); // セーブ用のキャンバス
     this.unitArray = new CrossReferenceArray();
     this.backgroundColor = color(220, 220, 255); // デフォルト（薄い青）
     this.drawColor = {}; // 色の辞書
@@ -379,6 +418,25 @@ class System{
     // 背景作る
     this.prepareBackground();
 	}
+  getProperFrameCount(){
+    return this.properFrameCount;
+  }
+  save(){
+    const fileName = "pict_" + mySystem.getCurrentNumber().toString() + "_" + mySystem.getProperFrameCount().toString();
+    this.canvasForSave.clear();
+    this.canvasForSave.image(this.bg, 0, 0);
+    this.canvasForSave.image(shading, 0, 0);
+    this.canvasForSave.save(fileName);
+  }
+  getActive(){
+    return this.active;
+  }
+  activate(){
+    this.active = true;
+  }
+  inActivate(){
+    this.active = false;
+  }
   createSeed(){
     let n = this.currentNumber;
     let seed = {x:0.5, y:0.4, shotSpeed:4, shotDirection:90, collisionFlag:ENEMY, shape:"starLarge", color:"black", bgColor:"plgrey"};
@@ -435,6 +493,7 @@ class System{
   }
 	initialize(){
 		//this.player.initialize();
+    this.properFrameCount = 0;
     this.unitArray.loopReverse("flagOff"); // 先に衝突フラグを消す
     this.unitArray.loopReverse("vanishAction");  // unitすべて戻す
     this.drawGroup = {};
@@ -485,15 +544,19 @@ class System{
     this.setPattern();
   }
 	update(){
+    if(!this.active){ return; }
+    this.properFrameCount++;
     this.unitArray.loop("update");
-    if(this.mode === MANUAL && mouseIsPressed){ this.numberControl(); } // MANUALモード限定
+    if(this.mode === MANUAL && mouseIsPressed){ this.numberControl(); } // MANUALモード限定, スライダーをいじる
     this.patternStateUpdate();
     if(this.patternState.next){ this.patternUpdate(); }
 	}
   execute(){
+    if(!this.active){ return; }
     this.unitArray.loop("execute");
   }
   eject(){
+    if(!this.active){ return; }
     this.unitArray.loopReverse("eject");
   }
   prepareBackground(){
@@ -538,8 +601,12 @@ class System{
   getMode(){
     return this.mode;
   }
-  setMode(newMode){
-    this.mode = newMode;
+  setMode(newModeId){
+    switch(newModeId){
+      case 0: this.mode = AUTO; break;
+      case 1: this.mode = RANDOM; break;
+      case 2: this.mode = MANUAL; break;
+    }
   }
   getCurrentNumber(){
     return this.currentNumber;
